@@ -1,0 +1,24 @@
+[Unit]
+Description=Manacost admin-only MCP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=manacost-mcp
+Group=manacost-mcp
+WorkingDirectory=/opt/manacost-mcp
+EnvironmentFile=/etc/manacost-mcp/mcp.env
+ExecStart=/usr/bin/node /opt/manacost-mcp/dist/src/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=35
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/manacost-mcp
+
+[Install]
+WantedBy=multi-user.target
