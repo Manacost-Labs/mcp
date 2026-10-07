@@ -1,30 +1,47 @@
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
 import type { Config } from '../config.js';
 import { ContentStore } from '../content/store.js';
 import { htmlText } from '../content/extract.js';
 import { fetchJson, SourceError } from '../http.js';
 
-const boostyPost = z.object({ id: z.string(), title: z.string().optional(), createdAt: z.number().optional(),
+const boostyPost = z.object({ id: z.string(), title: z.string().nullish(), createdAt: z.number().optional(),
   hasAccess: z.boolean().optional(), isBlocked: z.boolean().optional(), isPaid: z.boolean().optional(),
+  price: z.number().optional(), subscriptionLevel: z.object({ price: z.number().optional() }).passthrough().nullable().optional(),
+  teaser: z.array(z.object({ type: z.string(), content: z.unknown().optional() }).passthrough()).optional(),
   data: z.array(z.object({ type: z.string(), content: z.unknown().optional() }).passthrough()).optional() }).passthrough();
+
+function boostyText(content: string): string {
+  // Boosty's text blocks encode a Draft.js tuple [text, block type, entities].
+  try { const block: unknown = JSON.parse(content); if (Array.isArray(block) && typeof block[0] === 'string') return htmlText(block[0]); } catch { /* plain HTML/text */ }
+  return htmlText(content);
+}
 
 export class BoostyApi {
   constructor(private config: Config, private fetcher: typeof fetch = fetch) {}
   async posts(limit: number, offset?: string) {
-    const url = new URL(`https://api.boosty.to/v1/blog/${this.config.boostyBlog}/post/`);
+    const url = new URL(`/v1/blog/${this.config.boostyBlog}/post/`, this.config.boostyApiUrl);
     url.searchParams.set('limit', String(limit));
     if (offset) url.searchParams.set('offset', offset);
-    const { data } = await fetchJson(url, { headers: this.config.boostyContentToken ? { Authorization: `Bearer ${this.config.boostyContentToken}` } : {} }, this.fetcher);
+    let token = this.config.boostyContentToken;
+    if (this.config.boostyTokenFile) {
+      try { token = readFileSync(this.config.boostyTokenFile, 'utf8').trim(); }
+      catch { throw new SourceError('BOOSTY_TOKEN_FILE_UNAVAILABLE'); }
+      if (!token || /[\r\n]/.test(token)) throw new SourceError('BOOSTY_TOKEN_FILE_INVALID');
+    }
+    const { data } = await fetchJson(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }, this.fetcher);
     const result = z.object({ data: z.array(boostyPost), extra: z.record(z.string(), z.unknown()).optional() }).safeParse(data);
     if (!result.success) throw new SourceError('BOOSTY_POSTS_INVALID_RESPONSE');
     return { items: result.data.data.map(post => {
-      const text = (post.data ?? []).filter(part => part.type === 'text' && typeof part.content === 'string')
-        .map(part => htmlText(part.content as string)).join('\n\n');
-      const full = post.hasAccess === true || post.isBlocked === false || post.isPaid === false;
+      const paid = post.isPaid ?? ((post.price ?? 0) > 0 || (post.subscriptionLevel?.price ?? 0) > 0);
+      const full = post.hasAccess === true || (post.hasAccess !== false && !paid && post.isBlocked !== true);
+      const parts = full ? post.data : (post.teaser?.length ? post.teaser : post.data);
+      const text = (parts ?? []).filter(part => part.type === 'text' && typeof part.content === 'string')
+        .map(part => boostyText(part.content as string)).filter(Boolean).join('\n\n');
       return { id: post.id, title: post.title || text.split('\n')[0]?.slice(0, 200) || post.id,
         url: `https://boosty.to/${this.config.boostyBlog}/posts/${post.id}`, text,
         publishedAt: post.createdAt ? new Date(post.createdAt > 1_000_000_000_000 ? post.createdAt : post.createdAt * 1000).toISOString() : undefined,
-        access: full ? 'full' : 'excerpt', paid: post.isPaid ?? post.isBlocked ?? null };
+        access: full ? 'full' : 'excerpt', paid };
     }), pagination: result.data.extra ?? {}, sourceUrl: url.href };
   }
   async analytics(kind: 'subscriptions' | 'post-sales', from?: string, to?: string) {

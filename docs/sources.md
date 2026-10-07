@@ -13,6 +13,14 @@ SQL-файлы, не подключается напрямую к PostgreSQL и 
 
 ## WordPress / маркетинговый контекст
 
+На текущем сервере Koloda использует `KOLODA_WP_API_URL=http://127.0.0.1:3110`:
+Application Passwords запрещены политикой для служебного пользователя.
+Отдельный `manacost-mcp-wordpress` запускает фиксированные GET-запросы через WP-CLI,
+проверяет секрет локального reader и действующую служебную роль, возвращает raw
+только опубликованных posts/pages без пароля и категории/теги. `_fields` исключает
+выполнение frontend shortcodes. URL, root и доступ определяет оператор, не агент.
+Плагины и политика WordPress не меняются; пароль reader не является паролем входа в WP.
+
 Отдельные Application Passwords на каждом сайте настраиваются парами
 `MANACOST_WP_*`, `KOLODA_WP_*`, `OLD_KOLODA_WP_*`. Они передаются только origin
 соответствующего `/wp-json/wp/v2` и не пересылаются при редиректах. Production
@@ -31,6 +39,12 @@ HearthPulse `/api/articles` отдаёт каталог/отрывки; полн
 HearthPulse, используется только для игровых statistics endpoints.
 
 ## Telegram: текущий бот
+
+На текущей установке включён `TELEGRAM_PUBLIC_CHANNELS=manacost_ru`. MCP обновляет
+новые публичные сообщения и отдельную историческую страницу каждые пять минут;
+история загружается постепенно. Бот продолжает свой polling, без переключения
+webhook/getUpdates. Публичный reader не видит закрытые посты и полные медиафайлы.
+Следующий вариант нужен для оперативного forwarding/private channels:
 
 1. Укажите channel IDs в `TELEGRAM_CHANNEL_IDS`. Ссылка `t.me/manacost_ru` найдена
    на Manacost; numeric ID берётся из уже полученного ботом `channel_post.chat.id`.
@@ -56,6 +70,24 @@ Update IDs дедуплицируются, edits обновляют сообще
 Историю сначала возьмите из текущей базы бота. Bot API не предоставляет весь архив.
 Для нужного периода допустим одноразовый Telegram export/авторизованный MTProto
 импорт, но этот сервис не запускает пользовательскую Telegram-сессию автоматически.
+
+## Старый архив
+
+`OLD_KOLODA_DATABASE_PATH` подключает существующий `guides.sqlite` read-only.
+В текущем архиве 621 материал; импортируются только выбранные поля статей и меню,
+без `user_id` и пользовательских таблиц. Каждый цикл читает до 100 записей;
+после обхода начинает проверять архив снова. Исходная база и её права не меняются.
+Отсутствие sitemap у старого сайта отображается отдельно от доступности архива.
+
+## Авторизованный Boosty
+
+`BOOSTY_CONTENT_TOKEN_FILE` читается перед каждым запросом. Отдельный root timer
+копирует только текущий access token из managed session существующего Boosty API
+в root-owned файл с правом чтения для MCP. Refresh token и обновление сессии остаются
+у existing service. При сбоях DNS `BOOSTY_API_URL=http://127.0.0.1:3112` использует
+локальный Nginx proxy с отдельными DNS resolvers и проверкой TLS Boosty.
+`hasAccess=false` всегда означает preview, даже при `isBlocked=false`; teaser
+и Draft.js text blocks разбираются отдельно. Полные посты проверены живым запросом.
 
 ```bash
 npm run import -- telegram-updates /secure/export/updates.jsonl

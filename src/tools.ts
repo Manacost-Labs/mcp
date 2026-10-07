@@ -133,7 +133,7 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
   register('get_source_status', 'Source freshness, index coverage and configuration readiness. No credentials are returned.', z.object({}), () => ({
     ...store.overview(), configured: { kolodaDatabase: Boolean(config.kolodaToken), hearthpulseStatistics: Boolean(config.hearthpulseApiKey),
       paidKoloda: Boolean(config.websites.find(s => s.id === 'koloda')?.username && config.websites.find(s => s.id === 'koloda')?.password),
-      telegram: Boolean(config.telegramSecret && config.channelIds.length), vk: Boolean(config.vkToken), boostyBlog: config.boostyBlog },
+      telegram: Boolean(config.publicChannels.length || (config.telegramSecret && config.channelIds.length)), vk: Boolean(config.vkToken), boostyBlog: config.boostyBlog },
   }));
   register('list_boosty_posts', 'List posts from our Boosty blog with titles, links and available body text. Paid/inaccessible bodies are explicitly marked as excerpts. Use the returned pagination.offset for the next page.',
     z.object({ limit: z.number().int().min(1).max(50).default(20), offset: z.string().max(4096).optional() }), input => boosty.posts(input.limit, input.offset));

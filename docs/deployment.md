@@ -1,56 +1,93 @@
-# Запуск и откат
+# Production deployment
 
-## Подготовка
+Текущая установка работает на **https://hearthpulse.net/mcp**. Git push запускает
+CI, но не меняет production. Исходники — этот репозиторий; runtime —
+`/opt/manacost-mcp`; индекс — `/var/lib/manacost-mcp/mcp.sqlite`; защищённые настройки
+и идентификаторы созданных credentials — `/etc/manacost-mcp`.
 
-Публикация в GitHub не запускает production deployment. Рабочий endpoint появится
-после установки сервиса и явного подключения Nginx к существующему HearthPulse.
+## Сервисы
 
-1. Установите проверенную ревизию в `/opt/manacost-mcp`, Node.js 22 и зависимости
-   через `npm ci`, выполните `npm run check`.
-2. Создайте отдельного пользователя `manacost-mcp`, каталог `/var/lib/manacost-mcp`
-   (owner service user, mode 0700), `/etc/manacost-mcp` (root, mode 0700).
-3. Скопируйте `.env.example` в `/etc/manacost-mcp/mcp.env` (root, mode 0600),
-   настройте key/источники, `DATABASE_PATH=/var/lib/manacost-mcp/mcp.sqlite`.
-   При ограничениях публичного WAF можно указать `HEARTHPULSE_INTERNAL_URL`
-   и `KOLODA_URL` на существующие loopback origins: browser login и PUBLIC_URL
-   остаются на публичном origin HearthPulse. Не открывайте внутренние ports наружу.
-4. Установите и проверьте systemd unit из `deploy/`. Он использует EnvironmentFile,
-   поэтому не запускает npm script, требующий `.env` в рабочем каталоге.
-5. Добавьте только locations из `deploy/nginx.conf` в существующий HTTPS server
-   HearthPulse, проверьте `nginx -t` перед reload.
+- `manacost-mcp.service`: отдельный пользователь, loopback `127.0.0.1:3100`,
+  автоматический старт и последовательная синхронизация каждые пять минут.
+- `manacost-mcp-wordpress.service`: локальный reader `127.0.0.1:3110`, WP-CLI под
+  владельцем сайта, fixed published-content GET routes, отдельный secret.
+- `manacost-mcp-boosty-token.timer`: каждые пять минут копирует текущий access token
+  Boosty; существующая сессия и refresh token не меняются.
+- Независимый origin vhost `deploy/nginx-origin-vhost.conf`, public certificate
+  HearthPulse и `deploy/reload-certificate.sh` для reload после renewal.
+- На активных региональных прокси `deploy/nginx-edge.conf` и transport snippet
+  направляют только MCP/metadata к этому vhost через existing origin tunnels.
+  Login и основной сайт используют прежний application origin.
 
-Docker-альтернатива: `docker compose build` и `docker compose up -d` после настройки
-локальной `.env`. Compose использует host networking (Linux), bind 127.0.0.1 и
-отдельный persistent volume. Это необходимо для existing loopback Boosty API.
-Не подключайте existing database/session volumes сайтов к MCP-контейнеру.
+OAuth access/error logs отключены на обоих уровнях. Host/SNI задаётся явно,
+upstream TLS проверяется. Nginx сохраняет безопасный failover соединений и не
+пересылает уже отправленные POST повторно (`non_idempotent` запрещён).
 
-## Проверка после запуска
+## Повторная установка
 
-- `/mcp/health` и два well-known metadata URL отвечают; authorization endpoint
-  указан на том же origin.
-- `POST /mcp` без token возвращает 401 с discovery challenge.
-- Обычный пользователь не может получить grant; admin может подтвердить consent.
-- Официальный MCP client проходит handshake и `get_source_status`.
-- Полный платный материал Koloda через `get_wordpress_content` содержит body,
-  а не приглашение оформить подписку; metadata.access=full.
-- `list_collections`/`read_records` работают с database:read; роли upstream не
-  расширяются до admin ради обхода ошибки.
-- Снятие admin или logout HearthPulse закрывает следующий запрос.
-- Source coverage контролируется по состояниям WordPress, sitemap, HTML, social;
-  не объявляйте начальный частичный индекс всем архивом.
-- Для Telegram настройте существующую очередь forwarding и проверьте реальное
-  channel_post/edit, не переключая webhook.
-- Live Boosty catalogue/VK проверяются отдельными read-only запросами после
-  конфигурации доступа; fixtures не доказывают доступность внешнего сервиса.
+1. Node.js 22.22.2+, PHP 8.1+ и существующий WP-CLI нужны для native deployment.
+   Выполните `npm ci` и `npm run check` в проверенном checkout.
+2. Создайте service user `manacost-mcp`, state directory (owner service user,
+   0700) и `/etc/manacost-mcp` (root:manacost-mcp, 0750). Env files — root, 0600.
+3. Создайте отдельные `SESSION_ENCRYPTION_KEY`/ingress/reader secrets. Выпустите
+   Koloda key только с `database:read` и HearthPulse key с `statistics.read`.
+   Не копируйте административные ключи в MCP. Текущий Koloda token действует
+   365 дней с момента выпуска; rotation выполняется через существующий API/CLI.
+4. Создайте роль/аккаунт WordPress через `deploy/provision-wordpress.php`,
+   выполнив его WP-CLI на правильном `--path`/`--url` и захватив stdout приватно.
+   Существующий одноимённый аккаунт скрипт сохраняет. Для локального bridge задайте
+   `WORDPRESS_ROOT` и новый `WORDPRESS_READER_PASSWORD` в отдельном
+   `wordpress-reader.env`; этот secret укажите в `KOLODA_WP_PASSWORD`,
+   username `manacost-mcp`, `KOLODA_WP_API_URL=http://127.0.0.1:3110`.
+5. Настройте source URLs/paths, Telegram public username и при необходимости
+   ingress allowlist. Для Boosty задайте token-file bridge и проверенный путь
+   существующей managed session. VK подключается только после предоставления
+   действующего token сообщества/приложения; сейчас он не настроен.
+6. Установите build, production dependencies, deploy/scripts в `/opt/manacost-mcp`
+   (root-owned), unit files из `deploy/`, выполните daemon-reload и enable --now.
+7. Установите origin vhost/snippet и сертификатный hook. Адаптируйте listen IP,
+   сертификатные пути и allowlist к серверу. На edge установите оба snippets;
+   `deploy/install-edge.py CONFIG` добавляет include в HTTPS block с backup и
+   восстановлением при неуспешном `nginx -t`. Всегда проверяйте перед reload.
+8. Выполните проверки ниже; затем установите клиент по [clients.md](clients.md).
 
-Сервис не логирует bodies, OAuth query strings, source tokens или cookies. В Nginx
-для OAuth routes отключён access log, чтобы code/state не попадали в общий журнал.
-Мониторьте health и source status. Health показывает процесс, не полноту источников.
+Для обновления сохраните текущий runtime/build как root-only rollback artifact,
+выполните checks новой ревизии, установите build/dependencies/deploy в runtime,
+перезапустите только MCP и проверьте health. Настройки и state не перезаписываются.
+
+Docker — альтернативный запуск основного MCP, не замена native source bridges.
+Host networking нужен для loopback APIs. Если используете token file/legacy
+archive, разрешите чтение только конкретных файлов read-only и согласуйте UID/GID;
+не монтируйте целые WordPress directories или session volumes.
+
+## Проверки и наблюдение
+
+- Health отвечает 200, discovery содержит issuer/resource `https://hearthpulse.net/mcp`;
+  POST без token отвечает 401 с OAuth challenge на каждом активном edge.
+- Admin в браузере подтверждает grant; guest/non-admin не получает доступ.
+  Logout/снятие admin закрывает следующий запрос. Проверка live identity выполняется
+  на loopback API существующего HearthPulse, cookies не переносятся в клиент.
+- Официальный MCP client проходит handshake после пользовательского OAuth.
+  `get_source_status` показывает coverage/errors. Fixtures проверяют auth flow;
+  реальный browser login необходимо выполнить самим владельцем клиента.
+- Полная платная статья проверяется через `get_wordpress_content`, включая текст
+  внутри locker. Current live smoke подтвердил body размером 12015 символов.
+- Live API подтвердил database collections и HearthPulse statistics; авторизованный
+  Boosty запрос вернул 20 полных постов; legacy импорт содержит 621 полный материал.
+- Индексация сайтов/Telegram прогрессивная. Health подтверждает процесс, не весь
+  архив. Удаления upstream не удаляют автоматически cached content.
+- `systemctl is-active manacost-mcp manacost-mcp-wordpress`, статус token timer и
+  `journalctl -u manacost-mcp` помогают проверить процесс без вывода secrets.
 
 ## Откат
 
-Остановите только `manacost-mcp`/его compose service и удалите добавленные Nginx
-locations после `nginx -t`. Existing HearthPulse, WordPress, Telegram и Boosty
-продолжают работать. Не удаляйте database volume: в нём grants и приватный индекс.
-Для возврата к предыдущей версии используйте сохранённую ревизию и защищённый
-backup SQLite + encryption key; миграции v1 создают только собственные таблицы.
+Остановите только новые MCP/reader/token-timer units. На edge уберите MCP include
+(backup в `/etc/nginx/manacost-mcp-backups`); на origin отключите собственный MCP
+vhost/snippet/hook после `nginx -t`. Основные сайты и существующие боты сохраняются.
+Не удаляйте индекс, env files или existing session/backup volumes.
+
+Идентификаторы собственных новых ключей сохранены в защищённом каталоге; отзывайте
+только их через существующий API/CLI. WordPress account `manacost-mcp`/его роль
+созданы отдельно и не владеют контентом; удалять их следует только после остановки
+reader и проверки отсутствия записей. Для возврата приложения используйте прежний
+проверенный build, сохранив SQLite state и encryption key.

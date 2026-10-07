@@ -1,5 +1,13 @@
 # Авторизация
 
+Ключи production находятся только в `/etc/manacost-mcp` вне репозитория.
+MCP работает под отдельным Unix-пользователем; собственный индекс имеет mode 0600.
+Локальный WordPress reader использует другой секрет, fixed GET routes и native
+permission checks. Его служебная роль содержит edit capabilities, которые WordPress
+требует для raw content, и не содержит admin/publish/delete capabilities.
+Сетевой WordPress login этой роли не используется. Boosty bridge копирует только
+access token, не меняет upstream session и не передаёт refresh credentials в MCP.
+
 ## Границы доверия
 
 HearthPulse — источник истины о сессии, блокировке и роли. MCP — отдельный OAuth

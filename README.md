@@ -4,21 +4,26 @@ MCP для сайтов Manacost, полной разрешённой базы K
 Доступ получают только действующие администраторы HearthPulse после входа через
 его существующий профиль. Все MCP-инструменты предназначены только для чтения.
 
+**Рабочий адрес: https://hearthpulse.net/mcp.** Подключение Codex и Claude Code:
+`npm run connect` из checkout на машине клиента. Первый вход выполняется в
+браузере через HearthPulse. [Инструкции для всех клиентов](docs/clients.md).
+
 ## Что подключено
 
 | Источник | Данные и способ подключения |
 | --- | --- |
 | `api.kolodahearthstone.com` | GraphQL: все разрешённые таблицы/views в `catalog`, `analytics`, `raw`, `platform`, `hub`, включая колонки и cursor pagination; REST для карт и колод |
 | `hs-manacost.ru` | WordPress статьи, страницы, категории, теги; sitemap, HTML, навигация и SEO |
-| `kolodahearthstone.com` | То же, **включая полный платный текст** через WordPress Application Password и `context=edit` |
+| `kolodahearthstone.com` | То же, **включая полный платный текст** через приватный локальный reader или WordPress Application Password и `context=edit` |
 | `old.kolodahearthstone.ru` | WordPress при доступности; RSS, sitemap и HTML для архива; возможен импорт полного экспорта |
 | `hearthpulse.net` | Каталог статей, страницы сайта и маркетинговые метаданные; статистика через существующий API |
 | Telegram | Посты и правки из текущего обработчика вашего бота; импорт сохранённой истории |
 | Boosty `kolodahearthstone` | Каталог постов, доступный текст; существующий локальный API подписок/retention и продаж постов |
 | VK `manacost` | Лента сообщества, доступные счётчики вовлечённости, описание и публичные ссылки через VK API |
 
-Ссылки Boosty, VK и Telegram `manacost_ru` найдены на публичных страницах ваших
-сайтов. Числовой Telegram channel ID нужно указать в конфигурации.
+Telegram `manacost_ru` читается из публичного архива с постепенной загрузкой истории.
+Для forwarding ботом нужны numeric channel IDs и отдельный секрет. VK требует
+действующего API token; без него источник явно отмечается как не настроенный.
 
 ## Запуск
 

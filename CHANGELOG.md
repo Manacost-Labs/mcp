@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0
+
+- Production systemd deployment and independent HTTPS origin/edge routes.
+- One-command setup for Codex and Claude Code; configuration guides for Cursor,
+  VS Code/Copilot, Gemini CLI, ChatGPT and Claude Desktop.
+- Private WordPress reader for raw paid articles when service-account Application
+  Passwords are disabled; avoids frontend rendering and rejects writes/drafts.
+- Read-only legacy guide archive, progressive public Telegram history, rotated
+  Boosty access-token bridge and accurate paid preview/Draft.js parsing.
+- Real-source fixes for null Boosty titles, empty WordPress titles and bounded
+  WordPress pagination; adapter/read-only bridge regression coverage.
+
 ## 1.0.0
 
 - Admin-only remote MCP with browser login through HearthPulse, PKCE, live role

@@ -1,16 +1,17 @@
 {
   "name": "manacost-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Admin-only HearthPulse MCP for Manacost websites, Telegram and the Koloda database",
   "scripts": {
     "dev": "tsx --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node --env-file=.env dist/src/index.js",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && npm run build",
     "ingest": "tsx --env-file=.env src/ingest.ts",
-    "import": "tsx --env-file=.env src/import.ts"
+    "import": "tsx --env-file=.env src/import.ts",
+    "connect": "node scripts/connect.mjs"
   },
   "repository": {
     "type": "git",

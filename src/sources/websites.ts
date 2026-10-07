@@ -37,14 +37,14 @@ export class WebsiteIngestor {
 
   async getWordPressContent(site: Website, type: 'posts' | 'pages', postId: number) {
     if (!site.username || !site.password) throw new SourceError('FULL_CONTENT_CREDENTIALS_REQUIRED');
-    const url = new URL(`/wp-json/wp/v2/${type}/${postId}?context=edit`, site.baseUrl);
+    const url = new URL(`/wp-json/wp/v2/${type}/${postId}?context=edit`, site.apiUrl ?? site.baseUrl);
     const result = await fetchJson(url, { headers: this.wpHeaders(site) }, this.fetcher);
     const post = wpPost.safeParse(result.data);
     if (!post.success || post.data.content.raw === undefined) throw new SourceError('WORDPRESS_RAW_CONTENT_MISSING');
     const p = post.data;
     const raw = p.content.raw!;
     return this.store.put({ source: site.id, externalId: `wp:${type}:${p.id}`, url: p.link,
-      title: htmlText(p.title.raw ?? p.title.rendered), text: htmlText(wordPressBody(raw)),
+      title: htmlText(p.title.raw ?? p.title.rendered) || p.slug || `WordPress #${p.id}`, text: htmlText(wordPressBody(raw)),
       publishedAt: p.date_gmt ? `${p.date_gmt}Z` : undefined, updatedAt: p.modified_gmt ? `${p.modified_gmt}Z` : undefined,
       metadata: { kind: type === 'posts' ? 'article' : 'page', access: 'full',
         paid: /\[(?:vip_locker|mtp_locker)\b|wp:svl\/locker/i.test(raw), categories: p.categories, tags: p.tags,
@@ -59,8 +59,8 @@ export class WebsiteIngestor {
       let page = Number(state?.cursor ?? 1);
       if (!Number.isSafeInteger(page) || page < 1) page = 1;
       for (let attempt = 0; attempt < this.config.wpPagesPerSync; attempt++, page++) {
-        const url = new URL('/wp-json/wp/v2/' + type, site.baseUrl);
-        url.search = new URLSearchParams({ per_page: '100', page: String(page), order: 'asc', orderby: 'id', ...(full ? { context: 'edit' } : {}) }).toString();
+        const url = new URL('/wp-json/wp/v2/' + type, site.apiUrl ?? site.baseUrl);
+        url.search = new URLSearchParams({ per_page: '20', page: String(page), order: 'asc', orderby: 'id', ...(full ? { context: 'edit' } : {}) }).toString();
         let result: Awaited<ReturnType<typeof fetchJson>>;
         try { result = await fetchJson(url, { headers }, this.fetcher); }
         catch (error) {
@@ -78,7 +78,7 @@ export class WebsiteIngestor {
             const body = raw === undefined ? post.content.rendered : wordPressBody(raw);
             const paid = /\[(?:vip_locker|mtp_locker)\b|wp:svl\/locker|svl-locker|svl_locked/i.test(raw ?? post.content.rendered);
             this.store.put({ source: site.id, externalId: `wp:${type}:${post.id}`, url: post.link,
-              title: htmlText(post.title.raw ?? post.title.rendered), text: htmlText(body),
+              title: htmlText(post.title.raw ?? post.title.rendered) || post.slug || `WordPress #${post.id}`, text: htmlText(body),
               publishedAt: post.date_gmt ? `${post.date_gmt}Z` : undefined, updatedAt: post.modified_gmt ? `${post.modified_gmt}Z` : undefined,
               metadata: { kind: type === 'posts' ? 'article' : 'page', access: raw !== undefined ? 'full' : site.id === 'koloda' || paid ? 'excerpt' : 'public',
                 paid, categories: post.categories, tags: post.tags, slug: post.slug, status: post.status, authorId: post.author,
@@ -87,7 +87,7 @@ export class WebsiteIngestor {
           }
         })();
         const totalPages = Number(result.headers.get('x-wp-totalpages'));
-        if (!posts.data.length || (totalPages > 0 && page >= totalPages) || posts.data.length < 100) {
+        if (!posts.data.length || (totalPages > 0 && page >= totalPages) || (!totalPages && posts.data.length < 20)) {
           this.store.status(stateKey, null, '1'); break;
         }
         this.store.status(stateKey, null, String(page + 1));
@@ -100,7 +100,7 @@ export class WebsiteIngestor {
       if (!Number.isSafeInteger(page) || page < 1) page = 1;
       for (let i = 0; i < this.config.wpPagesPerSync; i++, page++) {
         let result: Awaited<ReturnType<typeof fetchJson>>;
-        try { result = await fetchJson(new URL(`/wp-json/wp/v2/${type}?per_page=100&page=${page}`, site.baseUrl), { headers }, this.fetcher); }
+        try { result = await fetchJson(new URL(`/wp-json/wp/v2/${type}?per_page=100&page=${page}`, site.apiUrl ?? site.baseUrl), { headers }, this.fetcher); }
         catch (error) {
           if (page > 1 && error instanceof SourceError && error.code === 'UPSTREAM_HTTP_400') { this.store.status(key, null, '1'); break; }
           throw error;
@@ -196,7 +196,10 @@ export class WebsiteIngestor {
 
   async sync(site: Website) {
     let error: string | null = null;
-    try { if (site.id === 'hearthpulse') await this.hearthpulse(site); else await this.wordpress(site); }
+    try {
+      if (site.id === 'hearthpulse') await this.hearthpulse(site);
+      else if (!(site.id === 'old-koloda' && this.config.legacyDatabasePath)) await this.wordpress(site);
+    }
     catch (caught) { error = caught instanceof SourceError ? caught.code : 'CONTENT_SYNC_FAILED'; }
     try { await this.discover(site); await this.crawl(site); }
     catch (caught) { error ??= caught instanceof SourceError ? caught.code : 'WEBSITE_SYNC_FAILED'; }

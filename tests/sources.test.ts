@@ -54,11 +54,15 @@ test('Boosty separates complete bodies and paid previews, and excludes buyer ide
     if (String(url).includes('api.boosty.to')) return jsonResponse({ data: [
       { id: 'public', title: 'Public post', isPaid: false, createdAt: 1700000000, data: [{ type: 'text', content: '<p>Full text</p>' }] },
       { id: 'paid', title: 'Paid post', isPaid: true, hasAccess: false, data: [{ type: 'text', content: 'Teaser' }] },
+      { id: 'live-shape', hasAccess: false, isBlocked: false, subscriptionLevel: { price: 1.1 }, data: [],
+        teaser: [{ type: 'text', content: '["Текст превью","unstyled",[]]' }] },
     ], extra: { offset: 'next' } });
     return jsonResponse({ summary: { postPurchases: 3 }, posts: [{ postId: 'paid', title: 'Paid post', purchases: 3 }], buyers: [{ email: 'private@example.com' }], transactions: [{ userId: 'private-id' }] });
   };
   const api = new BoostyApi(testConfig(), fetcher), posts = await api.posts(20);
   assert.equal(posts.items[0]?.access, 'full'); assert.equal(posts.items[1]?.access, 'excerpt');
+  assert.equal(posts.items[2]?.access, 'excerpt'); assert.equal(posts.items[2]?.paid, true);
+  assert.equal(posts.items[2]?.text, 'Текст превью');
   const sales = await api.analytics('post-sales');
   assert.ok(!JSON.stringify(sales).includes('private'));
   assert.equal((sales as { posts: unknown[] }).posts.length, 1);

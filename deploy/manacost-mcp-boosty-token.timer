@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep Manacost MCP's Boosty access token current
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+Unit=manacost-mcp-boosty-token.service
+
+[Install]
+WantedBy=timers.target

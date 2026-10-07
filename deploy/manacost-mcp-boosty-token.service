@@ -1,0 +1,14 @@
+[Unit]
+Description=Copy current Boosty access token for Manacost MCP
+
+[Service]
+Type=oneshot
+User=root
+Group=manacost-mcp
+ExecStart=/usr/bin/python3 /opt/manacost-mcp/deploy/refresh-boosty-token.py --source /home/debian/server/services/boosty-auth/data/boosty_tokens.json --target /etc/manacost-mcp/boosty-access-token
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/etc/manacost-mcp

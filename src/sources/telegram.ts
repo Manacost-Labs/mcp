@@ -3,6 +3,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { ContentStore } from '../content/store.js';
 import type { Config } from '../config.js';
+import { load } from 'cheerio';
+import { htmlText } from '../content/extract.js';
+import { fetchBounded, SourceError } from '../http.js';
 
 const postSchema = z.object({ message_id: z.number().int(), date: z.number().int(), edit_date: z.number().int().optional(),
   chat: z.object({ id: z.number().int(), type: z.literal('channel'), username: z.string().regex(/^[A-Za-z0-9_]+$/).optional(), title: z.string().optional() }),
@@ -16,7 +19,7 @@ export function storeTelegramUpdate(store: ContentStore, input: unknown, channel
   return store.db.transaction(() => {
     const inserted = store.db.prepare('INSERT OR IGNORE INTO telegram_updates(id,received_at) VALUES(?,?)').run(update.update_id, Date.now());
     if (!inserted.changes) return { duplicate: true };
-    const externalId = `${post.chat.id}:${post.message_id}`;
+    const externalId = `${post.chat.username ?? post.chat.id}:${post.message_id}`;
     const old = store.db.prepare('SELECT updated_at FROM content WHERE source=? AND external_id=?').get('telegram', externalId) as { updated_at: string } | undefined;
     const updatedAt = new Date((post.edit_date ?? post.date) * 1000).toISOString();
     if (old && old.updated_at > updatedAt) return { ignored: true };
@@ -30,6 +33,45 @@ export function storeTelegramUpdate(store: ContentStore, input: unknown, channel
     store.status('telegram', null);
     return { id };
   })();
+}
+
+/** Public archive reader; independent of the existing bot's update consumer. */
+export async function syncTelegramPublic(config: Config, store: ContentStore, fetcher: typeof fetch = fetch) {
+  for (const channel of config.publicChannels) {
+    const stateKey = `telegram:${channel}:archive`;
+    try {
+      const state = store.state(stateKey);
+      const requests = [new URL(`https://t.me/s/${channel}`)];
+      if (state?.cursor && state.cursor !== 'complete') {
+        const history = new URL(requests[0]!); history.searchParams.set('before', state.cursor); requests.push(history);
+      }
+      for (const [index, url] of requests.entries()) {
+        const response = await fetchBounded(url, {}, fetcher);
+        const $ = load(response.text);
+        let count = 0;
+        $('.tgme_widget_message[data-post]').each((_, element) => {
+          const item = $(element), path = item.attr('data-post') ?? '';
+          const match = /^([A-Za-z0-9_]+)\/(\d+)$/.exec(path);
+          if (!match || match[1]!.toLowerCase() !== channel.toLowerCase()) return;
+          const text = htmlText(item.find('.tgme_widget_message_text').html() ?? '');
+          const publishedAt = item.find('time[datetime]').attr('datetime');
+          const views = item.find('.tgme_widget_message_views').text();
+          const links = item.find('.tgme_widget_message_text a[href]').map((__, a) => $(a).attr('href')).get();
+          store.put({ source: 'telegram', externalId: `${channel}:${match[2]}`, url: `https://t.me/${path}`,
+            title: text.split('\n')[0]?.slice(0, 200) || `@${channel} #${match[2]}`, text, publishedAt,
+            metadata: { kind: 'post', access: 'full', channelUsername: channel, views, links, acquisition: 'public-archive' } });
+          count++;
+        });
+        if (!count) throw new SourceError('TELEGRAM_PUBLIC_NO_POSTS');
+        // Always refresh newest posts, but advance the separate archive frontier.
+        if (index > 0 || !state?.cursor) {
+          const before = $('a.tme_messages_more[data-before]').attr('data-before');
+          store.status(stateKey, null, before && /^\d+$/.test(before) ? before : 'complete');
+        }
+      }
+      store.status('telegram', null);
+    } catch (error) { store.status('telegram', error instanceof SourceError ? error.code : 'TELEGRAM_PUBLIC_UNAVAILABLE'); }
+  }
 }
 
 export function telegramRouter(store: ContentStore, config: Config) {

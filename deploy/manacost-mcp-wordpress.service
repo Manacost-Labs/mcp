@@ -1,0 +1,21 @@
+[Unit]
+Description=Private read-only Koloda WordPress bridge for Manacost MCP
+After=network-online.target
+
+[Service]
+User=koloda
+Group=koloda
+WorkingDirectory=/opt/manacost-mcp
+EnvironmentFile=/etc/manacost-mcp/wordpress-reader.env
+ExecStart=/usr/bin/node /opt/manacost-mcp/deploy/wordpress-reader.mjs
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
