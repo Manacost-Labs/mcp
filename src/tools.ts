@@ -14,7 +14,7 @@ const localPage = { limit: z.number().int().min(1).max(50).default(20), offset: 
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
 export function createToolServer(config: Config, store: ContentStore, fetcher: typeof fetch = fetch) {
-  const server = new McpServer({ name: 'manacost-mcp', version: '1.0.0' });
+  const server = new McpServer({ name: 'manacost-mcp', version: '1.1.0' });
   const koloda = new KolodaApi(config.kolodaUrl, config.kolodaToken, fetcher);
   const websites = new WebsiteIngestor(store, config, fetcher);
   const boosty = new BoostyApi(config, fetcher), vk = new VkApi(config, fetcher);
