@@ -1,6 +1,6 @@
 {
   "name": "manacost-mcp",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Admin-only HearthPulse MCP for Manacost websites, Telegram and the Koloda database",
   "scripts": {
     "dev": "tsx --env-file=.env src/index.ts",

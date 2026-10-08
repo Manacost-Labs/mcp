@@ -20,10 +20,10 @@ function fixture(overrides: NodeJS.ProcessEnv = {}) {
   return { ...runtime, db, calls, identity: (value: unknown) => { identity = value; }, unavailable: () => { unavailable = true; }, advance: (ms: number) => { now += ms; } };
 }
 
-async function begin(f: ReturnType<typeof fixture>, name = '<img src=x onerror=alert(1)>') {
-  const registration = await request(f.app).post('/mcp/oauth/register').send({ client_name: name, redirect_uris: ['https://client.example/callback'] }).expect(201);
+async function begin(f: ReturnType<typeof fixture>, name = '<img src=x onerror=alert(1)>', redirectUri = 'https://client.example/callback') {
+  const registration = await request(f.app).post('/mcp/oauth/register').send({ client_name: name, redirect_uris: [redirectUri] }).expect(201);
   const verifier = 'v'.repeat(43), clientId = registration.body.client_id as string;
-  const query = { client_id: clientId, redirect_uri: 'https://client.example/callback', response_type: 'code',
+  const query = { client_id: clientId, redirect_uri: redirectUri, response_type: 'code',
     code_challenge: digest(verifier), code_challenge_method: 'S256', resource: 'http://localhost/mcp', scope: 'mcp.read', state: 'a&b' };
   return { clientId, verifier, query };
 }
@@ -186,6 +186,54 @@ test('consent rejects cross-site forms, missing binding cookie and replay', asyn
       .type('form').send({ pending: a.pending, decision: 'approve' }).expect(403);
     await request(f.app).post('/mcp/oauth/consent').set('Origin', 'http://localhost').set('Cookie', `${a.cookie}; manacost_auth_token=session-secret`)
       .type('form').send({ pending: a.pending, decision: 'approve' }).expect(403);
+  } finally { f.db.close(); }
+});
+
+test('consent browser headers allow only the registered callback and preserve exact Origin checks', async () => {
+  const f = fixture();
+  try {
+    for (const [redirectUri, decision] of [
+      ['http://127.0.0.1:55214/callback', 'approve'],
+      ['http://[::1]:55214/callback', 'approve'],
+      ['https://client.example/callback?client=fixture', 'approve'],
+      ['http://localhost:55214/callback', 'deny'],
+    ] as const) {
+      const b = await begin(f, 'Browser fixture', redirectUri);
+      const page = await request(f.app).get('/mcp/oauth/authorize').query(b.query)
+        .set('Cookie', 'manacost_auth_token=session-secret').expect(200);
+      const csp = `default-src 'none'; base-uri 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'`;
+      assert.equal(page.headers['content-security-policy'], csp);
+      assert.equal(page.headers['referrer-policy'], 'same-origin');
+      const pending = /name="pending" value="([^"]+)"/.exec(page.text)![1]!;
+      const cookie = (page.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
+      const cookies = `${cookie}; manacost_auth_token=session-secret`;
+      await request(f.app).post('/mcp/oauth/consent').set('Origin', 'null').set('Cookie', cookies)
+        .type('form').send({ pending, decision }).expect(403);
+      const response = await request(f.app).post('/mcp/oauth/consent').set('Origin', 'http://localhost').set('Cookie', cookies)
+        .type('form').send({ pending, decision }).expect(302);
+      assert.equal(response.headers['content-security-policy'], csp);
+      assert.equal(response.headers['referrer-policy'], 'no-referrer');
+      const callback = new URL(response.headers.location!);
+      assert.equal(callback.origin, new URL(redirectUri).origin);
+      assert.equal(callback.searchParams.get('state'), 'a&b');
+      if (decision === 'deny') {
+        assert.equal(callback.searchParams.get('error'), 'access_denied');
+        assert.equal(callback.searchParams.get('code'), null);
+      } else {
+        await request(f.app).post('/mcp/oauth/token').type('form').send({ grant_type: 'authorization_code',
+          client_id: b.clientId, code: callback.searchParams.get('code'), code_verifier: b.verifier,
+          redirect_uri: redirectUri, resource: b.query.resource }).expect(200);
+      }
+    }
+  } finally { f.db.close(); }
+});
+
+test('registered callback origins cannot inject or broaden the consent CSP', async () => {
+  const f = fixture();
+  try {
+    for (const redirectUri of ['https://*.example/callback', 'https://evil.example;script-src/callback', 'https://evil.example,other.example/callback']) {
+      await request(f.app).post('/mcp/oauth/register').send({ redirect_uris: [redirectUri] }).expect(400);
+    }
   } finally { f.db.close(); }
 });
 

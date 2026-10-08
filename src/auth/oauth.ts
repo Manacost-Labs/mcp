@@ -20,7 +20,7 @@ type Code = { data: string; expires_at: number; consumed: number; grant_id: stri
 const redirectSchema = z.string().max(2048).refine(raw => {
   try {
     const url = new URL(raw);
-    return !url.username && !url.password && !url.hash &&
+    return !url.username && !url.password && !url.hash && /^[a-z0-9.:_[\]-]+$/i.test(url.hostname) &&
       (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)));
   } catch { return false; }
 }, 'Redirect URI must be HTTPS or loopback HTTP');
@@ -37,6 +37,14 @@ const authorizationSchema = z.object({
   resource: z.string().max(2048), scope: z.literal('mcp.read').default('mcp.read'), state: z.string().max(2048).optional(),
 });
 const consentSchema = z.object({ pending: z.string().regex(/^[A-Za-z0-9_-]{43}$/), decision: z.enum(['approve', 'deny']) });
+
+function consentCsp(redirectUri: string) {
+  const origin = new URL(redirectSchema.parse(redirectUri)).origin;
+  // Chromium applies form-action to the redirect after POST as well. Only the
+  // registered callback origin is allowed; no scripts, frames or base overrides.
+  // No upgrade-insecure-requests: native clients receive codes over HTTP loopback.
+  return `default-src 'none'; base-uri 'none'; form-action 'self' ${origin}; frame-ancestors 'none'`;
+}
 
 export class OAuthService {
   constructor(private db: Db, private config: Config, private identity: HearthPulseIdentity, private now = Date.now) {}
@@ -121,7 +129,7 @@ export class OAuthService {
       const input = authorizationSchema.safeParse(req.query);
       if (!input.success) return res.status(400).send('Invalid authorization request. PKCE S256 and the MCP resource are required.');
       const p = input.data, client = this.client(p.client_id);
-      if (!client || !client.redirect_uris.includes(p.redirect_uri) || p.resource !== this.config.publicUrl) return res.status(400).send('Invalid client, redirect URI or resource.');
+      if (!client || !client.redirect_uris.includes(p.redirect_uri) || !redirectSchema.safeParse(p.redirect_uri).success || p.resource !== this.config.publicUrl) return res.status(400).send('Invalid client, redirect URI or resource.');
       const credential = browserCredential(req.headers.cookie);
       if (!credential) return this.loginPage(req, res);
       try { await this.identity.check(credential); }
@@ -135,6 +143,10 @@ export class OAuthService {
         .run(digest(pending), digest(csrf), JSON.stringify(params), this.now() + 600_000);
       res.cookie(consentCookie, csrf, { httpOnly: true, secure: this.config.publicUrl.startsWith('https:'), sameSite: 'lax',
         path: `${this.config.basePath}/oauth`, maxAge: 600_000 });
+      // A no-referrer document makes native form POSTs send Origin: null in Chromium.
+      // Keep the exact-origin CSRF check and suppress referrers outside this origin.
+      res.set('Referrer-Policy', 'same-origin');
+      res.set('Content-Security-Policy', consentCsp(p.redirect_uri));
       // Client name, redirect and configured path are escaped; pending is random base64url. CSP prohibits scripts.
       return res.type('html').send(this.page('Подключение Manacost MCP', `<p>Приложение <strong>${escapeHtml(client.client_name)}</strong> запрашивает доступ для чтения материалов сайтов, Telegram, Boosty, VK и базы Koloda.</p>
         <p>Адрес возврата: <code>${escapeHtml(p.redirect_uri) /* nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format -- escaped attribute/text; covered by malicious-client regression test */}</code></p>
@@ -157,6 +169,7 @@ export class OAuthService {
       try { userId = await this.identity.check(credential); }
       catch (error) { return res.status(error instanceof AccessDenied ? error.status : 503).send('Administrator verification failed'); }
       const p = JSON.parse(pending.data) as Authorization;
+      const csp = consentCsp(p.redirectUri);
       const target = new URL(p.redirectUri);
       if (p.state !== undefined) target.searchParams.set('state', p.state);
       target.searchParams.set('iss', this.config.publicUrl);
@@ -170,6 +183,7 @@ export class OAuthService {
         target.searchParams.set('code', code);
       })();
       res.clearCookie(consentCookie, { path: `${this.config.basePath}/oauth`, secure: this.config.publicUrl.startsWith('https:') });
+      res.set('Content-Security-Policy', csp);
       return res.redirect(302, target.href);
     });
 
