@@ -7,7 +7,7 @@ import { digest } from '../src/auth/oauth.js';
 import { browserCredential } from '../src/auth/hearthpulse.js';
 import { jsonResponse, profile, testConfig } from './helpers.js';
 
-function fixture() {
+function fixture(overrides: NodeJS.ProcessEnv = {}) {
   const db = openDatabase(':memory:');
   let identity: unknown = profile, unavailable = false, now = Date.now();
   const calls: RequestInit[] = [];
@@ -16,7 +16,7 @@ function fixture() {
     if (unavailable) throw new Error('private token should never appear in the response');
     return jsonResponse(identity);
   };
-  const runtime = createApp(testConfig(), db, fetcher, () => now);
+  const runtime = createApp(testConfig(overrides), db, fetcher, () => now);
   return { ...runtime, db, calls, identity: (value: unknown) => { identity = value; }, unavailable: () => { unavailable = true; }, advance: (ms: number) => { now += ms; } };
 }
 
@@ -44,6 +44,18 @@ async function authorize(f: ReturnType<typeof fixture>) {
     code_verifier: b.verifier, redirect_uri: b.query.redirect_uri, resource: b.query.resource };
   return { ...b, exchange, cookie, pending };
 }
+
+test('anonymous authorization links to the HearthPulse query-based login route and preserves continuation', async () => {
+  const f = fixture({ HEARTHPULSE_LOGIN_URL: 'http://localhost/?login' });
+  try {
+    const b = await begin(f);
+    const page = await request(f.app).get('/mcp/oauth/authorize').query(b.query).expect(401);
+    assert.ok(page.text.includes('href="http://localhost/?login"'));
+    assert.ok(!page.text.includes('/profile/'));
+    assert.match(page.text, /href="\/mcp\/oauth\/authorize\?/);
+    assert.match(page.text, /Продолжить после входа/);
+  } finally { f.db.close(); }
+});
 
 test('anonymous, non-admin and unavailable identities cannot authorize or reach MCP', async () => {
   const f = fixture();

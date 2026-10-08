@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1
+
+- Correct HearthPulse browser login link to `/?login` instead of the missing
+  `/profile/` route; allow queries only in the configured login URL while
+  preserving the same-origin requirement and source URL restrictions.
+- Regression coverage for the anonymous login page, OAuth continuation and
+  login/source URL boundaries.
+
 ## 1.2.0
 
 - Live Plausible Stats API v2 integration for configured team sites: traffic,

@@ -7,7 +7,7 @@ export type Website = { id: 'manacost' | 'koloda' | 'old-koloda' | 'hearthpulse'
 const envSchema = z.object({
   PUBLIC_URL: z.url().default('https://hearthpulse.net/mcp'),
   HEARTHPULSE_URL: z.url().default('https://hearthpulse.net'),
-  HEARTHPULSE_LOGIN_URL: z.url().default('https://hearthpulse.net/profile/'),
+  HEARTHPULSE_LOGIN_URL: z.url().default('https://hearthpulse.net/?login'),
   HEARTHPULSE_INTERNAL_URL: z.preprocess(value => value === '' ? undefined : value, z.url().optional()),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
@@ -44,17 +44,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const e = parsed.data;
   const publicUrl = new URL(e.PUBLIC_URL);
   const hearthpulseUrl = new URL(e.HEARTHPULSE_URL);
-  const urls = [publicUrl, hearthpulseUrl, new URL(e.HEARTHPULSE_LOGIN_URL), new URL(e.KOLODA_URL), new URL(e.BOOSTY_LOCAL_URL), new URL(e.BOOSTY_API_URL)];
+  const loginUrl = new URL(e.HEARTHPULSE_LOGIN_URL);
+  const urls = [publicUrl, hearthpulseUrl, loginUrl, new URL(e.KOLODA_URL), new URL(e.BOOSTY_LOCAL_URL), new URL(e.BOOSTY_API_URL)];
   if (e.HEARTHPULSE_INTERNAL_URL) urls.push(new URL(e.HEARTHPULSE_INTERNAL_URL));
   if (e.KOLODA_WP_API_URL) urls.push(new URL(e.KOLODA_WP_API_URL));
   urls.push(new URL(e.PLAUSIBLE_URL), new URL(e.PLAUSIBLE_DASHBOARD_URL));
   for (const url of urls) {
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-    if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
-      throw new Error('Configured URLs must use HTTPS (HTTP is allowed only on loopback) and contain no credentials, query or fragment');
+    if (url.username || url.password || (url.search && url !== loginUrl) || url.hash || (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
+      throw new Error('Configured URLs must use HTTPS (HTTP is allowed only on loopback), contain no credentials or fragment; only the login URL may contain a query');
     }
   }
-  if (publicUrl.origin !== hearthpulseUrl.origin || new URL(e.HEARTHPULSE_LOGIN_URL).origin !== hearthpulseUrl.origin) {
+  if (publicUrl.origin !== hearthpulseUrl.origin || loginUrl.origin !== hearthpulseUrl.origin) {
     throw new Error('MCP authorization must share the HearthPulse origin to use its existing host-only login cookie');
   }
   const channelIds = e.TELEGRAM_CHANNEL_IDS.split(',').map(s => s.trim()).filter(Boolean);

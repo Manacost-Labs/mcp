@@ -14,6 +14,16 @@ test('environment template starts after filling the required encryption key', ()
   assert.equal(config.identityUrl, 'https://hearthpulse.net');
   assert.equal(config.kolodaToken, '');
   assert.equal(config.channelIds.length, 0);
+  assert.equal(config.loginUrl, 'https://hearthpulse.net/?login');
+});
+
+test('query-based login stays on the identity origin while service URLs reject queries and credentials', () => {
+  assert.equal(testConfig({ HEARTHPULSE_LOGIN_URL: 'http://localhost/?login' }).loginUrl, 'http://localhost/?login');
+  assert.equal(loadConfig({ SESSION_ENCRYPTION_KEY: 'a'.repeat(64) }).loginUrl, 'https://hearthpulse.net/?login');
+  assert.throws(() => testConfig({ HEARTHPULSE_LOGIN_URL: 'https://attacker.example/?login' }), /share the HearthPulse origin/);
+  assert.throws(() => testConfig({ HEARTHPULSE_LOGIN_URL: 'http://user:password@localhost/?login' }), /no credentials/);
+  assert.throws(() => testConfig({ HEARTHPULSE_LOGIN_URL: 'http://localhost/?login#fragment' }), /fragment/);
+  assert.throws(() => testConfig({ KOLODA_URL: 'https://api.kolodahearthstone.com/?token=bad' }), /only the login URL/);
 });
 
 test('Koloda reads all permitted collection metadata and cursor pages with the server token', async () => {
