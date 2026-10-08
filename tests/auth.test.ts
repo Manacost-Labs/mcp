@@ -28,15 +28,15 @@ async function begin(f: ReturnType<typeof fixture>, name = '<img src=x onerror=a
   return { clientId, verifier, query };
 }
 
-async function authorize(f: ReturnType<typeof fixture>) {
+async function authorize(f: ReturnType<typeof fixture>, cookieName = 'manacost_auth_token') {
   const b = await begin(f);
-  const consent = await request(f.app).get('/mcp/oauth/authorize').query(b.query).set('Cookie', 'manacost_auth_token=session-secret').expect(200);
+  const consent = await request(f.app).get('/mcp/oauth/authorize').query(b.query).set('Cookie', `${cookieName}=session-secret`).expect(200);
   assert.ok(consent.text.includes('&lt;img'));
   assert.ok(!consent.text.includes('<img src=x'));
   const pending = /name="pending" value="([^"]+)"/.exec(consent.text)![1]!;
   const cookie = (consent.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
   const approved = await request(f.app).post('/mcp/oauth/consent').set('Origin', 'http://localhost')
-    .set('Cookie', `${cookie}; manacost_auth_token=session-secret`).type('form').send({ pending, decision: 'approve' }).expect(302);
+    .set('Cookie', `${cookie}; ${cookieName}=session-secret`).type('form').send({ pending, decision: 'approve' }).expect(302);
   const callback = new URL(approved.headers.location!);
   assert.equal(callback.searchParams.get('state'), 'a&b');
   assert.equal(callback.searchParams.get('iss'), 'http://localhost/mcp');
@@ -74,6 +74,29 @@ test('login continuation distinguishes absent, conflicting and unrecognized cook
     const approved = await request(f.app).get('/mcp/oauth/authorize').query(b.query).set('Cookie', 'manacost_auth_token=current').expect(200);
     assert.match(approved.text, /Разрешить чтение/);
   } finally { f.db.close(); }
+});
+
+test('secure HearthPulse cookie survives consent, encrypted grants, access and refresh with live role checks', async () => {
+  const f = fixture();
+  try {
+    const a = await authorize(f, '__Host-manacost_auth_token');
+    const issued = await request(f.app).post('/mcp/oauth/token').type('form').send(a.exchange).expect(200);
+    await f.oauth.authenticate(issued.body.access_token);
+    const refreshed = await request(f.app).post('/mcp/oauth/token').type('form').send({ grant_type: 'refresh_token', client_id: a.clientId,
+      refresh_token: issued.body.refresh_token, resource: 'http://localhost/mcp' }).expect(200);
+    await f.oauth.authenticate(refreshed.body.access_token);
+    assert.ok(f.calls.every(init => (init.headers as Record<string, string>).Cookie === '__Host-manacost_auth_token=session-secret'));
+    f.identity({ user: { id: 'admin-1' }, adminAllowed: false });
+    await assert.rejects(f.oauth.authenticate(refreshed.body.access_token));
+  } finally { f.db.close(); }
+});
+
+test('secure cookie takes priority without downgrade to an older or ambiguous session', () => {
+  assert.equal(browserCredential('analytics=ignore; manacost_auth_token=old; __Host-manacost_auth_token=current'), '__Host-manacost_auth_token=current');
+  assert.equal(browserCredential('__Host-manacost_auth_token=; manacost_auth_token=old'), null);
+  assert.equal(browserCredential('__Host-manacost_auth_token=bad!; manacost_auth_token=old'), null);
+  assert.equal(browserCredential('__Host-manacost_auth_token=a; __Host-manacost_auth_token=b; manacost_auth_token=old'), null);
+  assert.equal(browserCredential('manacost_auth_token=old'), 'old');
 });
 
 test('anonymous, non-admin and unavailable identities cannot authorize or reach MCP', async () => {

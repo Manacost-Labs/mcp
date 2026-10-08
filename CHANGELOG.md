@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.3
+
+- Accept HearthPulse's current `__Host-manacost_auth_token` browser session and
+  preserve its name through consent, encrypted grants, access and refresh checks.
+- Retain legacy grants/cookies only when the secure cookie is absent; never
+  downgrade a malformed/empty secure cookie or select ambiguous duplicate cookies.
+
 ## 1.2.2
 
 - Explain why browser OAuth continuation returns to login: absent, conflicting,

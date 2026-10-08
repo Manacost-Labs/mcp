@@ -20,7 +20,11 @@ authorization/resource server и read-only слой над источникам�
 Тексты сайтов и соцсетей — данные, не инструкции для агента.
 
 MCP размещается под `/mcp` на origin HearthPulse. Во время browser authorization
-берётся только cookie `manacost_auth_token`; остальные cookies не пересылаются.
+берётся cookie `__Host-manacost_auth_token`, используемая текущим HearthPulse.
+Если её вообще нет, для совместимости принимается старая `manacost_auth_token`.
+Пустая/некорректная новая cookie не разрешает fallback на старую; неоднозначные
+дубли выбранной cookie отклоняются. Cookie передаётся identity API с исходным
+именем и хранится в grant только зашифрованной. Остальные cookies не пересылаются.
 Проверка идёт в `GET /api/auth/me`, где требуется `user.id` и `adminAllowed=true`.
 Этот существующий серверный predicate проверяет роль `admin` и отсутствие
 `blockedAt`. Contest-admin без обычной роли администратора доступа не получает.

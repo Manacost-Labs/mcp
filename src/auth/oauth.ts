@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import type { Config } from '../config.js';
 import type { Db } from '../database.js';
-import { AccessDenied, browserCredential, HearthPulseIdentity } from './hearthpulse.js';
+import { AccessDenied, browserCredential, browserCredentialFailure, HearthPulseIdentity } from './hearthpulse.js';
 
 const randomToken = () => randomBytes(32).toString('base64url');
 export const digest = (value: string) => createHash('sha256').update(value).digest('base64url');
@@ -244,8 +244,7 @@ export class OAuthService {
       <body><main><h1>${title}</h1>${body}</main></body></html>`;
   }
   private loginPage(req: Request, res: Response, reason?: string) {
-    const count = (req.headers.cookie ?? '').split(';').filter(part => part.trim().startsWith('manacost_auth_token=')).length;
-    reason ??= count === 0 ? 'missing_cookie' : count > 1 ? 'duplicate_cookie' : 'invalid_cookie';
+    reason ??= browserCredentialFailure(req.headers.cookie);
     const diagnostic = randomToken().slice(0, 12);
     // Never log cookie values, identity IDs, OAuth parameters or the request URL.
     console.warn(JSON.stringify({ event: 'mcp_browser_login_required', reason, diagnostic }));
