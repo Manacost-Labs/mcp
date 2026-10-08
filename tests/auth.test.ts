@@ -54,6 +54,25 @@ test('anonymous authorization links to the HearthPulse query-based login route a
     assert.ok(!page.text.includes('/profile/'));
     assert.match(page.text, /href="\/mcp\/oauth\/authorize\?/);
     assert.match(page.text, /Продолжить после входа/);
+    assert.match(page.text, /MCP не получил сессию/);
+    assert.equal(page.headers['cache-control'], 'no-store');
+  } finally { f.db.close(); }
+});
+
+test('login continuation distinguishes absent, conflicting and unrecognized cookies and advances with a valid session', async () => {
+  const f = fixture();
+  try {
+    const b = await begin(f);
+    const conflicting = await request(f.app).get('/mcp/oauth/authorize').query(b.query).set('Cookie', 'manacost_auth_token=stale; manacost_auth_token=current').expect(401);
+    assert.match(conflicting.text, /несколько cookies/);
+    assert.ok(!conflicting.text.includes('stale') && !conflicting.text.includes('current'));
+    f.identity({ user: null, adminAllowed: false });
+    const expired = await request(f.app).get('/mcp/oauth/authorize').query(b.query).set('Cookie', 'manacost_auth_token=expired-session-secret').expect(401);
+    assert.match(expired.text, /HearthPulse не подтвердил эту сессию/);
+    assert.ok(!expired.text.includes('expired-session-secret'));
+    f.identity(profile);
+    const approved = await request(f.app).get('/mcp/oauth/authorize').query(b.query).set('Cookie', 'manacost_auth_token=current').expect(200);
+    assert.match(approved.text, /Разрешить чтение/);
   } finally { f.db.close(); }
 });
 

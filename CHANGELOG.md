@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.2
+
+- Explain why browser OAuth continuation returns to login: absent, conflicting,
+  malformed or unrecognized HearthPulse session cookie. Display a diagnostic ID
+  and log only that ID and a fixed reason, never cookies, identities or OAuth URLs.
+- Verify that continuation advances to consent once a valid admin session is
+  provided; access checks remain unchanged.
+
 ## 1.2.1
 
 - Correct HearthPulse browser login link to `/?login` instead of the missing

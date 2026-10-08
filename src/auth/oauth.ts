@@ -126,7 +126,7 @@ export class OAuthService {
       if (!credential) return this.loginPage(req, res);
       try { await this.identity.check(credential); }
       catch (error) {
-        if (error instanceof AccessDenied && error.status === 401) return this.loginPage(req, res);
+        if (error instanceof AccessDenied && error.status === 401) return this.loginPage(req, res, 'session_not_recognized');
         return res.status(error instanceof AccessDenied ? 403 : 503).send(error instanceof AccessDenied ? 'Доступ к MCP разрешён только администраторам HearthPulse.' : 'Проверка HearthPulse временно недоступна.');
       }
       const pending = randomToken(), csrf = randomToken();
@@ -243,8 +243,22 @@ export class OAuthService {
     return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
       <body><main><h1>${title}</h1>${body}</main></body></html>`;
   }
-  private loginPage(req: Request, res: Response) {
+  private loginPage(req: Request, res: Response, reason?: string) {
+    const count = (req.headers.cookie ?? '').split(';').filter(part => part.trim().startsWith('manacost_auth_token=')).length;
+    reason ??= count === 0 ? 'missing_cookie' : count > 1 ? 'duplicate_cookie' : 'invalid_cookie';
+    const diagnostic = randomToken().slice(0, 12);
+    // Never log cookie values, identity IDs, OAuth parameters or the request URL.
+    console.warn(JSON.stringify({ event: 'mcp_browser_login_required', reason, diagnostic }));
+    const message = reason === 'missing_cookie'
+      ? 'MCP не получил сессию HearthPulse из браузера. Вход и подключение MCP должны быть открыты в одном браузере и одном профиле.'
+      : reason === 'duplicate_cookie'
+        ? 'Браузер передал несколько cookies сессии HearthPulse. MCP не может однозначно выбрать сессию.'
+        : reason === 'session_not_recognized'
+          ? 'Cookie получена, но HearthPulse не подтвердил эту сессию. Продолжение входа пока невозможно.'
+          : 'Браузер передал сессию HearthPulse в неподдерживаемом формате.';
+    res.set('Cache-Control', 'no-store');
     return res.status(401).type('html').send(this.page('Вход через HearthPulse', `<p>Войдите на HearthPulse под аккаунтом администратора, затем вернитесь к подключению MCP.</p>
+      <p role="status">${message}</p><p>Код диагностики: <code>${diagnostic}</code></p>
       <p><a href="${escapeHtml(this.config.loginUrl)}" target="_blank" rel="noopener noreferrer">Войти на HearthPulse</a></p>
       <p><a href="${escapeHtml(req.originalUrl)}">Продолжить после входа</a></p>`));
   }
