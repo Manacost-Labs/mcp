@@ -16,8 +16,11 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
   const address = listener.address(); assert.ok(address && typeof address !== 'string');
   const origin = `http://127.0.0.1:${address.port}`, resource = `${origin}/mcp`;
   const db = openDatabase(':memory:');
-  const config = testConfig({ PUBLIC_URL: resource, HEARTHPULSE_URL: origin, HEARTHPULSE_LOGIN_URL: `${origin}/profile/` });
-  const runtime = createApp(config, db, async () => jsonResponse(profile)); app = runtime.app;
+  const config = testConfig({ PUBLIC_URL: resource, HEARTHPULSE_URL: origin, HEARTHPULSE_LOGIN_URL: `${origin}/profile/`,
+    PLAUSIBLE_SITE_IDS: 'hs-manacost.ru', PLAUSIBLE_API_KEY: 'fixture-statistics-key' });
+  const runtime = createApp(config, db, async (url, init) => String(url).endsWith('/api/v2/query')
+    ? jsonResponse({ results: [{ metrics: [25, 50], dimensions: [] }], meta: { total_rows: 1 }, query: JSON.parse(init!.body as string) })
+    : jsonResponse(profile)); app = runtime.app;
   const client = new Client({ name: 'integration-test', version: '1.0.0' });
   try {
     const contentId = runtime.store.put({ source: 'koloda', externalId: 'paid-42', url: 'https://kolodahearthstone.com/paid/',
@@ -36,7 +39,7 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
       code, code_verifier: verifier, redirect_uri: 'https://client.example/callback', resource }).expect(200);
     await client.connect(new StreamableHTTPClientTransport(new URL(resource), { requestInit: { headers: { Authorization: `Bearer ${tokens.body.access_token}` } } }));
     const tools = await client.listTools();
-    for (const name of ['get_content', 'read_records', 'get_site_overview', 'list_boosty_posts', 'list_vk_posts']) {
+    for (const name of ['get_content', 'read_records', 'get_site_overview', 'list_boosty_posts', 'list_vk_posts', 'list_plausible_sites', 'get_plausible_stats']) {
       assert.ok(tools.tools.some(tool => tool.name === name), `Missing tool: ${name}`);
     }
     assert.ok(tools.tools.every(tool => tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint === false));
@@ -47,6 +50,14 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
     const navigation = await client.callTool({ name: 'get_content_metadata', arguments: { id: contentId, section: 'navigation', limit: 10, offset: 10 } });
     const metadata = JSON.parse((navigation.content as { text: string }[])[0]!.text) as { data: { items: { text: string }[]; nextOffset: number } };
     assert.equal(metadata.data.items.length, 10); assert.equal(metadata.data.items[0]?.text, 'Section 10'); assert.equal(metadata.data.nextOffset, 20);
+    const traffic = await client.callTool({ name: 'get_plausible_stats', arguments: { siteId: 'hs-manacost.ru' } });
+    assert.ok(!traffic.isError);
+    const trafficData = JSON.parse((traffic.content as { text: string }[])[0]!.text).data;
+    assert.deepEqual(trafficData.results[0].metrics, [25, 50]);
+    assert.equal(runtime.store.state('plausible')?.error, null);
+    const denied = await client.callTool({ name: 'get_plausible_stats', arguments: { siteId: 'other.example' } });
+    assert.equal(denied.isError, true);
+    assert.match((denied.content as { text: string }[])[0]!.text, /PLAUSIBLE_SITE_NOT_ALLOWED/);
     const status = await client.callTool({ name: 'get_source_status', arguments: {} });
     assert.ok(!(status as { isError?: boolean }).isError);
   } finally {

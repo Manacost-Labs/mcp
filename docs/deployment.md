@@ -43,6 +43,9 @@ upstream TLS проверяется. Nginx сохраняет безопасны
    ingress allowlist. Для Boosty задайте token-file bridge и проверенный путь
    существующей managed session. VK подключается только после предоставления
    действующего token сообщества/приложения; сейчас он не настроен.
+   Для Plausible задайте отдельный `PLAUSIBLE_API_KEY` со scope `stats:read:*`,
+   `PLAUSIBLE_URL=http://127.0.0.1:8000`, публичный dashboard URL и allowlist
+   `PLAUSIBLE_SITE_IDS`. [Настройка и запросы](plausible.md).
 6. Установите build, production dependencies, deploy/scripts в `/opt/manacost-mcp`
    (root-owned), unit files из `deploy/`, выполните daemon-reload и enable --now.
 7. Установите origin vhost/snippet и сертификатный hook. Адаптируйте listen IP,

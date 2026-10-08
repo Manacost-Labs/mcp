@@ -7,6 +7,10 @@ permission checks. Его служебная роль содержит edit capa
 требует для raw content, и не содержит admin/publish/delete capabilities.
 Сетевой WordPress login этой роли не используется. Boosty bridge копирует только
 access token, не меняет upstream session и не передаёт refresh credentials в MCP.
+Plausible использует отдельный ключ с единственным scope `stats:read:*` своей
+команды. MCP дополнительно ограничивает сайты серверным allowlist, принимает
+только ограниченные агрегатные запросы к Stats API v2 и не вызывает Events/Sites
+write API. Произвольные custom properties не выдаются.
 
 ## Границы доверия
 

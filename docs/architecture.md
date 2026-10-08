@@ -30,6 +30,11 @@ Source adapters изолированы от OAuth. Source errors показыв�
 контракта вместо поддельной успешной загрузки. Нет service write tools, произвольного
 SQL, GraphQL mutation, публикации сообщений, управления пользователями или scraper jobs.
 
+Plausible Stats API v2 читается по запросу через фиксированный `/api/v2/query`,
+отдельный stats-only key и allowlist сайтов. `metrics`/`dimensions` подписывают
+массивы значений, `meta` сохраняет предупреждения, `nextOffset` продолжает выдачу.
+Сырые посещения в индекс не копируются. Лимит — 100 строк на запрос.
+
 Один процесс должен владеть базой и выполнять ingestion; отдельно `npm run ingest`
 можно запускать при остановленном встроенном importer. Для масштабирования потребуется
 отдельный worker/queue и shared OAuth persistence вместо копирования SQLite replicas.

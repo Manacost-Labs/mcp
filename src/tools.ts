@@ -6,6 +6,7 @@ import { ContentStore } from './content/store.js';
 import { KolodaApi, pageSchema } from './sources/koloda.js';
 import { WebsiteIngestor } from './sources/websites.js';
 import { BoostyApi, VkApi } from './sources/social.js';
+import { PlausibleApi, plausibleQuerySchema } from './sources/plausible.js';
 import { fetchJson, SourceError } from './http.js';
 
 const id = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).max(120);
@@ -14,10 +15,11 @@ const localPage = { limit: z.number().int().min(1).max(50).default(20), offset: 
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
 export function createToolServer(config: Config, store: ContentStore, fetcher: typeof fetch = fetch) {
-  const server = new McpServer({ name: 'manacost-mcp', version: '1.1.0' });
+  const server = new McpServer({ name: 'manacost-mcp', version: '1.2.0' });
   const koloda = new KolodaApi(config.kolodaUrl, config.kolodaToken, fetcher);
   const websites = new WebsiteIngestor(store, config, fetcher);
   const boosty = new BoostyApi(config, fetcher), vk = new VkApi(config, fetcher);
+  const plausible = new PlausibleApi(config, fetcher);
   const register = <T extends z.ZodObject>(name: string, description: string, schema: T, run: (input: z.output<T>) => Promise<unknown> | unknown) => {
     const sdkSchema: StandardSchemaWithJSON = schema;
     server.registerTool(name, { description, inputSchema: sdkSchema, annotations }, async (input) => {
@@ -134,7 +136,15 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
     ...store.overview(), configured: { kolodaDatabase: Boolean(config.kolodaToken), hearthpulseStatistics: Boolean(config.hearthpulseApiKey),
       paidKoloda: Boolean(config.websites.find(s => s.id === 'koloda')?.username && config.websites.find(s => s.id === 'koloda')?.password),
       telegram: Boolean(config.publicChannels.length || (config.telegramSecret && config.channelIds.length)), vk: Boolean(config.vkToken), boostyBlog: config.boostyBlog },
+    plausible: plausible.sites(),
   }));
+  register('list_plausible_sites', 'List configured Plausible site IDs and dashboard links. This is an allowlist, not a live permission or availability check. Stats require an active HearthPulse admin MCP grant.',
+    z.object({}), () => plausible.sites());
+  register('get_plausible_stats', 'Read live Plausible traffic aggregates for an allowed site: visitors, pageviews, sources, UTM campaigns, pages, devices, geography, time series and configured goals. Metrics/dimensions label the corresponding result arrays. Filters are ANDed. Use nextOffset for pagination; preserve meta warnings about imported data. Goal results describe tracked goals only, not untracked purchases. No events are sent or settings changed.',
+    plausibleQuerySchema, async input => {
+      try { const data = await plausible.query(input); store.status('plausible', null); return data; }
+      catch (error) { store.status('plausible', error instanceof SourceError ? error.code : 'PLAUSIBLE_REQUEST_FAILED'); throw error; }
+    });
   register('list_boosty_posts', 'List posts from our Boosty blog with titles, links and available body text. Paid/inaccessible bodies are explicitly marked as excerpts. Use the returned pagination.offset for the next page.',
     z.object({ limit: z.number().int().min(1).max(50).default(20), offset: z.string().max(4096).optional() }), input => boosty.posts(input.limit, input.offset));
   register('get_boosty_analytics', 'Read the existing server Boosty API: aggregate subscriptions/retention or post purchases/revenue. Buyer identities are excluded. Observed payments are not a forecast.',

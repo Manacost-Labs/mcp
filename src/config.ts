@@ -32,6 +32,10 @@ const envSchema = z.object({
   VK_COMMUNITY: z.string().regex(/^[A-Za-z0-9_]+$/).default('manacost'),
   VK_API_TOKEN: z.string().optional(),
   VK_API_VERSION: z.string().regex(/^\d+\.\d+$/).default('5.199'),
+  PLAUSIBLE_URL: z.url().default('http://127.0.0.1:8000'),
+  PLAUSIBLE_DASHBOARD_URL: z.url().default('https://stats.hs-manacost.ru'),
+  PLAUSIBLE_API_KEY: z.preprocess(value => value === '' ? undefined : value, z.string().min(1).regex(/^[^\r\n]+$/).optional()),
+  PLAUSIBLE_SITE_IDS: z.string().default(''),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
@@ -43,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const urls = [publicUrl, hearthpulseUrl, new URL(e.HEARTHPULSE_LOGIN_URL), new URL(e.KOLODA_URL), new URL(e.BOOSTY_LOCAL_URL), new URL(e.BOOSTY_API_URL)];
   if (e.HEARTHPULSE_INTERNAL_URL) urls.push(new URL(e.HEARTHPULSE_INTERNAL_URL));
   if (e.KOLODA_WP_API_URL) urls.push(new URL(e.KOLODA_WP_API_URL));
+  urls.push(new URL(e.PLAUSIBLE_URL), new URL(e.PLAUSIBLE_DASHBOARD_URL));
   for (const url of urls) {
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
@@ -54,6 +59,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   const channelIds = e.TELEGRAM_CHANNEL_IDS.split(',').map(s => s.trim()).filter(Boolean);
   const publicChannels = e.TELEGRAM_PUBLIC_CHANNELS.split(',').map(s => s.trim()).filter(Boolean);
+  const plausibleSiteIds = [...new Set(e.PLAUSIBLE_SITE_IDS.split(',').map(s => s.trim()).filter(Boolean))];
+  if (plausibleSiteIds.length > 50 || plausibleSiteIds.some(site => site.length > 253 || !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(site))) {
+    throw new Error('PLAUSIBLE_SITE_IDS must contain only configured site domains');
+  }
   if (publicChannels.some(channel => !/^[A-Za-z0-9_]{5,32}$/.test(channel))) throw new Error('Invalid Telegram public channel username');
   if (e.BOOSTY_CONTENT_TOKEN_FILE && !e.BOOSTY_CONTENT_TOKEN_FILE.startsWith('/')) throw new Error('Boosty token file must use an absolute path');
   if (e.OLD_KOLODA_DATABASE_PATH && !e.OLD_KOLODA_DATABASE_PATH.startsWith('/')) throw new Error('Legacy archive must use an absolute path');
@@ -79,6 +88,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     htmlPagesPerSync: e.HTML_PAGES_PER_SYNC,
     boostyLocalUrl: e.BOOSTY_LOCAL_URL.replace(/\/$/, ''), boostyApiUrl: e.BOOSTY_API_URL.replace(/\/$/, ''), boostyBlog: e.BOOSTY_BLOG, boostyContentToken: e.BOOSTY_CONTENT_TOKEN, boostyTokenFile: e.BOOSTY_CONTENT_TOKEN_FILE,
     vkCommunity: e.VK_COMMUNITY, vkToken: e.VK_API_TOKEN, vkVersion: e.VK_API_VERSION,
+    plausibleUrl: e.PLAUSIBLE_URL.replace(/\/$/, ''), plausibleDashboardUrl: e.PLAUSIBLE_DASHBOARD_URL.replace(/\/$/, ''),
+    plausibleApiKey: e.PLAUSIBLE_API_KEY, plausibleSiteIds,
   };
 }
 export type Config = ReturnType<typeof loadConfig>;

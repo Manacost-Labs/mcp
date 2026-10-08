@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+- Live Plausible Stats API v2 integration for configured team sites: traffic,
+  pages, referrers, UTM, geography, devices, time series and tracked goals.
+- Read-only statistics key, fixed endpoint, site allowlist, bounded queries,
+  pagination and preserved upstream metadata/warnings; no event/settings writes.
+- OAuth MCP integration and adapter coverage for statistics, invalid sites,
+  malformed responses and missing credentials.
+
 ## 1.1.0
 
 - Production systemd deployment and independent HTTPS origin/edge routes.
