@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDatabase } from '../src/database.js';
 import { ContentStore } from '../src/content/store.js';
-import { wordPressBody, htmlText, extractPage } from '../src/content/extract.js';
+import { wordPressBody, htmlText, extractPage, extractArticleImages } from '../src/content/extract.js';
 import { WebsiteIngestor, sameSiteUrl } from '../src/sources/websites.js';
 import { telegramRouter, storeTelegramUpdate } from '../src/sources/telegram.js';
 import { jsonResponse, testConfig } from './helpers.js';
@@ -10,8 +10,8 @@ import express from 'express';
 import request from 'supertest';
 
 test('both Koloda VIP formats expose full paid text without unlock codes', async () => {
-  const raw = '<p>Public teaser.</p>[vip_locker code="SECRET_UNLOCK"]<p>Paid tactics one.</p>[/vip_locker]\n' +
-    '<!-- wp:svl/locker {"code":"SECOND_SECRET","content":"<p>Paid tactics two.</p>"} /-->';
+  const raw = '<p>Public teaser.</p>[vip_locker code="SECRET_UNLOCK"]<p>Paid tactics one.</p><img src="/paid-one.png" alt="First deck">[/vip_locker]\n' +
+    '<!-- wp:svl/locker ' + JSON.stringify({ code: 'SECOND_SECRET', content: '<p>Paid tactics two.</p><figure><img src="/paid-two.webp" alt="Second deck"><figcaption>Paid illustration</figcaption></figure>' }) + ' /-->';
   const decoded = htmlText(wordPressBody(raw));
   assert.match(decoded, /Paid tactics one/); assert.match(decoded, /Paid tactics two/);
   assert.ok(!decoded.includes('SECRET'));
@@ -27,7 +27,59 @@ test('both Koloda VIP formats expose full paid text without unlock codes', async
     const item = store.get(id)!;
     assert.equal(item.metadata.access, 'full'); assert.equal(item.metadata.paid, true);
     assert.match(item.text, /Paid tactics two/);
+    const images = item.metadata.images as { index: number; url: string; caption: string }[];
+    assert.equal(images.length, 2);
+    assert.deepEqual(images.map(image => image.index), [0, 1]);
+    assert.equal(images[1]!.url, 'https://kolodahearthstone.com/paid-two.webp');
+    assert.equal(images[1]!.caption, 'Paid illustration');
+    assert.ok(!JSON.stringify(item).includes('SECRET'));
     assert.equal(store.search({ query: 'tactics', paid: true, limit: 20, offset: 0 }).total, 1);
+  } finally { db.close(); }
+});
+
+test('article images preserve order, lazy sources, captions and responsive variants without unsafe URLs', () => {
+  const images = extractArticleImages('<figure><a href="/deck.png"><img src="data:image/gif;base64,placeholder" data-src="/deck-small.png" alt="Deck &amp; cards" width="320" height="200" data-srcset="/deck-small.png 320w, /deck.png 1280w"></a><figcaption><b>Deck</b> caption</figcaption></figure><img src="javascript:alert(1)"><img src="https://user:secret@example.com/image.png"><img src="//cdn.hearthpulse.net/cards.webp">', 'https://hearthpulse.net/article/');
+  assert.equal(images.length, 2);
+  assert.equal(images[0]!.index, 0);
+  assert.equal(images[0]!.url, 'https://hearthpulse.net/deck-small.png');
+  assert.equal(images[0]!.originalUrl, 'https://hearthpulse.net/deck.png');
+  assert.equal(images[0]!.alt, 'Deck & cards');
+  assert.equal(images[0]!.caption, 'Deck caption');
+  assert.equal(images[0]!.width, 320);
+  assert.deepEqual(images[0]!.srcset, [{ url: 'https://hearthpulse.net/deck-small.png', descriptor: '320w' }, { url: 'https://hearthpulse.net/deck.png', descriptor: '1280w' }]);
+  assert.equal(images[1]!.url, 'https://cdn.hearthpulse.net/cards.webp');
+  assert.equal(extractArticleImages('<img src="/small.jpg" srcset="/small.jpg 300w, /large.jpg 1200w">', 'https://hearthpulse.net/')[0]!.originalUrl,
+    'https://hearthpulse.net/large.jpg');
+});
+
+test('old indexed paid articles acquire images on demand without losing text or public SEO', async () => {
+  const db = openDatabase(':memory:'), store = new ContentStore(db);
+  const config = testConfig({ KOLODA_WP_USERNAME: 'integration', KOLODA_WP_PASSWORD: 'test-password' });
+  const site = config.websites.find(item => item.id === 'koloda')!;
+  const id = store.put({ source: 'koloda', externalId: 'wp:posts:42', url: site.baseUrl + '/paid/', title: 'Paid', text: 'Existing full text',
+    metadata: { access: 'full', paid: true, page: { description: 'Existing SEO', images: [{ url: site.baseUrl + '/teaser.png' }] } } });
+  let calls = 0;
+  const fetcher: typeof fetch = async (url, init) => {
+    calls++;
+    assert.match(String(url), /posts\/42\?context=edit$/);
+    assert.ok(new Headers(init?.headers).has('authorization'));
+    return jsonResponse({ id: 42, link: site.baseUrl + '/paid/', title: { rendered: 'Paid' },
+      content: { rendered: 'Subscribe!', raw: '[vip_locker code="PRIVATE_CODE"]<img src="/paid.png">[/vip_locker]' } });
+  };
+  try {
+    const ingestor = new WebsiteIngestor(store, config, fetcher);
+    assert.equal(await ingestor.refreshArticleImages(id), true);
+    const item = store.get(id)!;
+    assert.equal(item.text, 'Existing full text');
+    assert.equal((item.metadata.page as { description: string }).description, 'Existing SEO');
+    assert.equal((item.metadata.images as { url: string }[])[0]!.url, site.baseUrl + '/paid.png');
+    assert.ok(!JSON.stringify(item).includes('PRIVATE_CODE'));
+    const other = store.put({ source: 'hearthpulse', externalId: 'native:42', url: 'http://localhost/article/', title: 'Native', text: '', metadata: {} });
+    assert.equal(await ingestor.refreshArticleImages(other), false);
+    assert.equal(calls, 1);
+    const unavailable: typeof fetch = async () => jsonResponse({ id: 42, link: site.baseUrl, title: { rendered: 'Paid' }, content: { rendered: 'Teaser only' } });
+    await assert.rejects(new WebsiteIngestor(store, config, unavailable).refreshArticleImages(id), /WORDPRESS_RAW_CONTENT_MISSING/);
+    assert.equal((store.get(id)!.metadata.images as { url: string }[])[0]!.url, site.baseUrl + '/paid.png');
   } finally { db.close(); }
 });
 

@@ -18,14 +18,20 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
   const db = openDatabase(':memory:');
   const config = testConfig({ PUBLIC_URL: resource, HEARTHPULSE_URL: origin, HEARTHPULSE_LOGIN_URL: `${origin}/profile/`,
     PLAUSIBLE_SITE_IDS: 'hs-manacost.ru', PLAUSIBLE_API_KEY: 'fixture-statistics-key' });
-  const runtime = createApp(config, db, async (url, init) => String(url).endsWith('/api/v2/query')
-    ? jsonResponse({ results: [{ metrics: [25, 50], dimensions: [] }], meta: { total_rows: 1 }, query: JSON.parse(init!.body as string) })
-    : jsonResponse(profile)); app = runtime.app;
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+  const runtime = createApp(config, db, async (url, init) => {
+    if (String(url).endsWith('.png')) return new Response(Buffer.from(png, 'base64'), { headers: { 'Content-Type': 'image/png' } });
+    return String(url).endsWith('/api/v2/query')
+      ? jsonResponse({ results: [{ metrics: [25, 50], dimensions: [] }], meta: { total_rows: 1 }, query: JSON.parse(init!.body as string) })
+      : jsonResponse(profile);
+  }); app = runtime.app;
   const client = new Client({ name: 'integration-test', version: '1.0.0' });
   try {
     const contentId = runtime.store.put({ source: 'koloda', externalId: 'paid-42', url: 'https://kolodahearthstone.com/paid/',
       title: 'Paid guide', text: 'Full paid body', metadata: { access: 'full', paid: true, kind: 'article',
-        page: { navigation: Array.from({ length: 30 }, (_, i) => ({ text: `Section ${i}`, url: `https://kolodahearthstone.com/section-${i}/` })) } } });
+        images: Array.from({ length: 30 }, (_, index) => ({ index, url: `https://kolodahearthstone.com/paid-${index}.png`, alt: `Deck ${index}`, caption: 'Paid illustration' })),
+        page: { images: [{ url: 'https://kolodahearthstone.com/teaser.png' }],
+          navigation: Array.from({ length: 30 }, (_, i) => ({ text: `Section ${i}`, url: `https://kolodahearthstone.com/section-${i}/` })) } } });
     const registration = await request(app).post('/mcp/oauth/register').send({ redirect_uris: ['https://client.example/callback'] }).expect(201);
     const verifier = 'a'.repeat(43), clientId = registration.body.client_id as string;
     const consent = await request(app).get('/mcp/oauth/authorize').query({ client_id: clientId, redirect_uri: 'https://client.example/callback',
@@ -39,7 +45,7 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
       code, code_verifier: verifier, redirect_uri: 'https://client.example/callback', resource }).expect(200);
     await client.connect(new StreamableHTTPClientTransport(new URL(resource), { requestInit: { headers: { Authorization: `Bearer ${tokens.body.access_token}` } } }));
     const tools = await client.listTools();
-    for (const name of ['get_content', 'read_records', 'get_site_overview', 'list_boosty_posts', 'list_vk_posts', 'list_plausible_sites', 'get_plausible_stats']) {
+    for (const name of ['get_content', 'get_article_image', 'read_records', 'get_site_overview', 'list_boosty_posts', 'list_vk_posts', 'list_plausible_sites', 'get_plausible_stats']) {
       assert.ok(tools.tools.some(tool => tool.name === name), `Missing tool: ${name}`);
     }
     assert.ok(tools.tools.every(tool => tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint === false));
@@ -50,6 +56,17 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
     const navigation = await client.callTool({ name: 'get_content_metadata', arguments: { id: contentId, section: 'navigation', limit: 10, offset: 10 } });
     const metadata = JSON.parse((navigation.content as { text: string }[])[0]!.text) as { data: { items: { text: string }[]; nextOffset: number } };
     assert.equal(metadata.data.items.length, 10); assert.equal(metadata.data.items[0]?.text, 'Section 10'); assert.equal(metadata.data.nextOffset, 20);
+    const imageList = await client.callTool({ name: 'get_content_metadata', arguments: { id: contentId, section: 'images', limit: 10, offset: 20 } });
+    const images = JSON.parse((imageList.content as { text: string }[])[0]!.text).data;
+    assert.equal(images.total, 30); assert.equal(images.items[0].index, 20); assert.equal(images.nextOffset, null);
+    assert.equal(images.items[0].url, 'https://kolodahearthstone.com/paid-20.png');
+    const illustration = await client.callTool({ name: 'get_article_image', arguments: { id: contentId, imageIndex: 20 } });
+    assert.ok(!illustration.isError);
+    const picture = (illustration.content as { type: string; data?: string; mimeType?: string }[]).find(block => block.type === 'image');
+    assert.equal(picture?.mimeType, 'image/png'); assert.equal(picture?.data, png);
+    const missing = await client.callTool({ name: 'get_article_image', arguments: { id: contentId, imageIndex: 99 } });
+    assert.equal(missing.isError, true);
+    assert.match((missing.content as { text: string }[])[0]!.text, /ARTICLE_IMAGE_NOT_FOUND/);
     const traffic = await client.callTool({ name: 'get_plausible_stats', arguments: { siteId: 'hs-manacost.ru' } });
     assert.ok(!traffic.isError);
     const trafficData = JSON.parse((traffic.content as { text: string }[])[0]!.text).data;

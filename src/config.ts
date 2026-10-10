@@ -12,6 +12,7 @@ const envSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   DATABASE_PATH: z.string().default('./data/mcp.sqlite'),
+  ARTICLE_IMAGE_HOSTS: z.string().default('cdn.hearthpulse.net,kolodahearthstone.ru,www.kolodahearthstone.ru'),
   SESSION_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
   KOLODA_URL: z.url().default('https://api.kolodahearthstone.com'),
   KOLODA_API_TOKEN: z.string().optional(),
@@ -61,6 +62,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const channelIds = e.TELEGRAM_CHANNEL_IDS.split(',').map(s => s.trim()).filter(Boolean);
   const publicChannels = e.TELEGRAM_PUBLIC_CHANNELS.split(',').map(s => s.trim()).filter(Boolean);
   const plausibleSiteIds = [...new Set(e.PLAUSIBLE_SITE_IDS.split(',').map(s => s.trim()).filter(Boolean))];
+  const articleImageHosts = [...new Set(e.ARTICLE_IMAGE_HOSTS.split(',').map(s => s.trim().toLowerCase()).filter(Boolean))];
+  if (articleImageHosts.length > 50 || articleImageHosts.some(host => host.length > 253 || !/^[a-z0-9]+(?:[.-][a-z0-9-]+)+$/.test(host) || /^[\d.]+$/.test(host))) {
+    throw new Error('ARTICLE_IMAGE_HOSTS must contain exact DNS hostnames, without wildcards, IPs or ports');
+  }
   if (plausibleSiteIds.length > 50 || plausibleSiteIds.some(site => site.length > 253 || !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(site))) {
     throw new Error('PLAUSIBLE_SITE_IDS must contain only configured site domains');
   }
@@ -81,7 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     publicUrl: publicUrl.href.replace(/\/$/, ''), basePath: publicUrl.pathname.replace(/\/$/, ''),
     hearthpulseUrl: hearthpulseUrl.origin, loginUrl: e.HEARTHPULSE_LOGIN_URL,
     identityUrl: (e.HEARTHPULSE_INTERNAL_URL ?? hearthpulseUrl.origin).replace(/\/$/, ''),
-    host: e.HOST, port: e.PORT, databasePath: e.DATABASE_PATH, encryptionKey: e.SESSION_ENCRYPTION_KEY,
+    host: e.HOST, port: e.PORT, databasePath: e.DATABASE_PATH, encryptionKey: e.SESSION_ENCRYPTION_KEY, articleImageHosts,
     kolodaUrl: e.KOLODA_URL.replace(/\/$/, ''), kolodaToken: e.KOLODA_API_TOKEN, legacyDatabasePath: e.OLD_KOLODA_DATABASE_PATH,
     hearthpulseApiKey: e.HEARTHPULSE_API_KEY, websites, channelIds,
     telegramSecret: e.TELEGRAM_INGEST_SECRET, publicChannels, ingestInterval: e.INGEST_INTERVAL_SECONDS * 1000,

@@ -2,7 +2,7 @@ import { load } from 'cheerio';
 import { z } from 'zod';
 import type { Config, Website } from '../config.js';
 import { ContentStore } from '../content/store.js';
-import { extractPage, htmlText, wordPressBody } from '../content/extract.js';
+import { extractArticleImages, extractPage, htmlText, wordPressBody } from '../content/extract.js';
 import { fetchBounded, fetchJson, SourceError } from '../http.js';
 
 const wpPost = z.object({ id: z.number(), link: z.string(), date_gmt: z.string().optional(), modified_gmt: z.string().optional(),
@@ -26,6 +26,30 @@ export function sameSiteUrl(raw: string, baseUrl: string): string | null {
 export class WebsiteIngestor {
   constructor(private store: ContentStore, private config: Config, private fetcher: typeof fetch = fetch) {}
 
+  /** Upgrade old indexed WP metadata on demand, without replacing full text or page SEO. */
+  async refreshArticleImages(id: string) {
+    const row = this.store.db.prepare('SELECT source,external_id,metadata FROM content WHERE id=?').get(id) as
+      { source: string; external_id: string; metadata: string } | undefined;
+    const match = row?.external_id.match(/^wp:(posts|pages):(\d+)$/);
+    const site = row && this.config.websites.find(item => item.id === row.source);
+    if (!row || !match || !site) return false;
+    const metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+    const full = Boolean(site.username && site.password);
+    const url = new URL(`/wp-json/wp/v2/${match[1]}/${match[2]}${full ? '?context=edit' : ''}`, site.apiUrl ?? site.baseUrl);
+    const result = await fetchJson(url, { headers: this.wpHeaders(site) }, this.fetcher);
+    const parsed = wpPost.safeParse(result.data);
+    if (!parsed.success) throw new SourceError('WORDPRESS_INVALID_RESPONSE');
+    const post = parsed.data;
+    if ((full || metadata.access === 'full') && post.content.raw === undefined) throw new SourceError('WORDPRESS_RAW_CONTENT_MISSING');
+    const body = post.content.raw === undefined ? post.content.rendered : wordPressBody(post.content.raw);
+    // Re-read metadata after the upstream request so concurrent SEO enrichment is preserved.
+    const current = this.store.get(id, 0, 0);
+    if (!current) throw new SourceError('CONTENT_NOT_FOUND');
+    this.store.db.prepare('UPDATE content SET metadata=? WHERE id=?').run(JSON.stringify({ ...current.metadata,
+      images: extractArticleImages(body, post.link), imagesFetchedAt: new Date().toISOString() }), id);
+    return true;
+  }
+
   private remember(site: Website, raw: string) {
     const url = sameSiteUrl(raw, site.baseUrl);
     if (url) this.store.db.prepare('INSERT OR IGNORE INTO crawl_urls(source,url) VALUES(?,?)').run(site.id, url);
@@ -43,10 +67,11 @@ export class WebsiteIngestor {
     if (!post.success || post.data.content.raw === undefined) throw new SourceError('WORDPRESS_RAW_CONTENT_MISSING');
     const p = post.data;
     const raw = p.content.raw!;
+    const body = wordPressBody(raw);
     return this.store.put({ source: site.id, externalId: `wp:${type}:${p.id}`, url: p.link,
-      title: htmlText(p.title.raw ?? p.title.rendered) || p.slug || `WordPress #${p.id}`, text: htmlText(wordPressBody(raw)),
+      title: htmlText(p.title.raw ?? p.title.rendered) || p.slug || `WordPress #${p.id}`, text: htmlText(body),
       publishedAt: p.date_gmt ? `${p.date_gmt}Z` : undefined, updatedAt: p.modified_gmt ? `${p.modified_gmt}Z` : undefined,
-      metadata: { kind: type === 'posts' ? 'article' : 'page', access: 'full',
+      metadata: { kind: type === 'posts' ? 'article' : 'page', access: 'full', images: extractArticleImages(body, p.link),
         paid: /\[(?:vip_locker|mtp_locker)\b|wp:svl\/locker/i.test(raw), categories: p.categories, tags: p.tags,
         excerpt: htmlText(p.excerpt?.rendered ?? ''), seo: p.yoast_head_json } });
   }
@@ -81,7 +106,7 @@ export class WebsiteIngestor {
               title: htmlText(post.title.raw ?? post.title.rendered) || post.slug || `WordPress #${post.id}`, text: htmlText(body),
               publishedAt: post.date_gmt ? `${post.date_gmt}Z` : undefined, updatedAt: post.modified_gmt ? `${post.modified_gmt}Z` : undefined,
               metadata: { kind: type === 'posts' ? 'article' : 'page', access: raw !== undefined ? 'full' : site.id === 'koloda' || paid ? 'excerpt' : 'public',
-                paid, categories: post.categories, tags: post.tags, slug: post.slug, status: post.status, authorId: post.author,
+                images: extractArticleImages(body, post.link), paid, categories: post.categories, tags: post.tags, slug: post.slug, status: post.status, authorId: post.author,
                 featuredMediaId: post.featured_media, excerpt: htmlText(post.excerpt?.rendered ?? ''), seo: post.yoast_head_json } });
             this.remember(site, post.link);
           }
