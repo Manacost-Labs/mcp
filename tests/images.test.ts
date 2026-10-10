@@ -1,9 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { articleImages, fetchArticleImage } from '../src/content/images.js';
+import { articleImages, imageMetadataPreview, fetchArticleImage } from '../src/content/images.js';
 import { testConfig } from './helpers.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
+
+test('metadata previews bound image arrays without mutating the complete stored list', () => {
+  const metadata = { images: Array.from({ length: 100 }, (_, index) => ({ index, url: `https://kolodahearthstone.com/${index}.png` })),
+    page: { images: Array.from({ length: 30 }, () => ({ url: 'https://kolodahearthstone.com/public.png' })) } };
+  const preview = imageMetadataPreview(metadata, 20);
+  assert.equal((preview.images as unknown[]).length, 20);
+  assert.equal(preview.imagesTotal, 100);
+  assert.equal(preview.imagesNextOffset, 20);
+  assert.equal(((preview.page as Record<string, unknown>).images as unknown[]).length, 20);
+  assert.equal(metadata.images.length, 100);
+  assert.equal(metadata.page.images.length, 30);
+});
 
 test('full article images take precedence over public page teasers', () => {
   const images = articleImages({ images: [{ url: 'https://kolodahearthstone.com/paid.png' }],

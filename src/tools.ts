@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Config } from './config.js';
 import { sourceIds } from './config.js';
 import { ContentStore } from './content/store.js';
-import { articleImages, fetchArticleImage } from './content/images.js';
+import { articleImages, imageMetadataPreview, fetchArticleImage } from './content/images.js';
 import { KolodaApi, pageSchema } from './sources/koloda.js';
 import { WebsiteIngestor } from './sources/websites.js';
 import { BoostyApi, VkApi } from './sources/social.js';
@@ -16,7 +16,7 @@ const localPage = { limit: z.number().int().min(1).max(50).default(20), offset: 
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
 export function createToolServer(config: Config, store: ContentStore, fetcher: typeof fetch = fetch) {
-  const server = new McpServer({ name: 'manacost-mcp', version: '1.3.0' });
+  const server = new McpServer({ name: 'manacost-mcp', version: '1.3.1' });
   const koloda = new KolodaApi(config.kolodaUrl, config.kolodaToken, fetcher);
   const websites = new WebsiteIngestor(store, config, fetcher);
   const boosty = new BoostyApi(config, fetcher), vk = new VkApi(config, fetcher);
@@ -49,7 +49,7 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
       includeMetadata: z.boolean().default(true) }), input => {
       const item = store.get(input.id, input.textOffset);
       if (!item) throw new SourceError('CONTENT_NOT_FOUND');
-      return input.includeMetadata ? item : { ...item, metadata: undefined };
+      return input.includeMetadata ? { ...item, metadata: imageMetadataPreview(item.metadata, 20) } : { ...item, metadata: undefined };
     });
   register('get_content_metadata', 'Read marketing metadata separately in bounded pages: SEO, headings, navigation, links, images or structured data. Use this when full metadata exceeds a normal content response.',
     z.object({ id: z.string().regex(/^[a-f0-9]{32}$/), section: z.enum(['summary', 'seo', 'headings', 'navigation', 'links', 'images', 'structuredData']), ...localPage }), async input => {
@@ -85,7 +85,8 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
       type: z.enum(['posts', 'pages']).default('posts'), textOffset: z.number().int().min(0).max(2000000).default(0) }), async input => {
       const site = config.websites.find(s => s.id === input.source)!;
       const itemId = await websites.getWordPressContent(site, input.type, input.postId);
-      return store.get(itemId, input.textOffset);
+      const item = store.get(itemId, input.textOffset)!;
+      return { ...item, metadata: imageMetadataPreview(item.metadata, 20) };
     });
   register('get_site_overview', 'Marketing context: site sections, homepage navigation, SEO, indexed content counts, paid-content coverage and crawl progress. Counts describe the current index, not traffic or audience.',
     z.object({ source: z.enum(['manacost', 'koloda', 'old-koloda', 'hearthpulse']) }), input => {

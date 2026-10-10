@@ -53,6 +53,10 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
     const content = result.content as { type: string; text: string }[];
     assert.match(content[0]!.text, /Full paid body/);
     assert.match(content[0]!.text, /"access":"full"/);
+    const contentData = JSON.parse(content[0]!.text).data;
+    assert.equal(contentData.metadata.images.length, 20);
+    assert.equal(contentData.metadata.imagesTotal, 30);
+    assert.equal(contentData.metadata.imagesNextOffset, 20);
     const navigation = await client.callTool({ name: 'get_content_metadata', arguments: { id: contentId, section: 'navigation', limit: 10, offset: 10 } });
     const metadata = JSON.parse((navigation.content as { text: string }[])[0]!.text) as { data: { items: { text: string }[]; nextOffset: number } };
     assert.equal(metadata.data.items.length, 10); assert.equal(metadata.data.items[0]?.text, 'Section 10'); assert.equal(metadata.data.nextOffset, 20);

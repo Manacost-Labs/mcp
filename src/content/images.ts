@@ -2,6 +2,15 @@ import { isIP } from 'node:net';
 import type { Config } from '../config.js';
 import { SourceError } from '../http.js';
 
+export function imageMetadataPreview(metadata: Record<string, unknown>, limit: number) {
+  const trim = (value: Record<string, unknown>): Record<string, unknown> => Array.isArray(value.images)
+    ? { ...value, images: value.images.slice(0, limit), imagesTotal: value.images.length,
+      imagesNextOffset: value.images.length > limit ? limit : null } : { ...value };
+  const result = trim(metadata);
+  if (metadata.page && typeof metadata.page === 'object') result.page = trim(metadata.page as Record<string, unknown>);
+  return result;
+}
+
 export function articleImages(metadata: Record<string, unknown>): Record<string, unknown>[] {
   const page = metadata.page && typeof metadata.page === 'object' ? metadata.page as Record<string, unknown> : {};
   const images = Array.isArray(metadata.images) ? metadata.images : Array.isArray(page.images) ? page.images : [];

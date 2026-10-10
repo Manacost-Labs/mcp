@@ -83,6 +83,19 @@ test('old indexed paid articles acquire images on demand without losing text or 
   } finally { db.close(); }
 });
 
+test('article search excludes large image lists while keeping full image metadata readable', () => {
+  const db = openDatabase(':memory:'), store = new ContentStore(db);
+  try {
+    const images = Array.from({ length: 500 }, (_, index) => ({ index, url: `https://kolodahearthstone.com/${index}.png`, alt: 'a'.repeat(1000) }));
+    const id = store.put({ source: 'koloda', externalId: 'wp:posts:900', url: 'https://kolodahearthstone.com/large/', title: 'Large gallery', text: 'Text', metadata: { images } });
+    const search = store.search({ source: 'koloda', limit: 20, offset: 0 });
+    assert.ok(Buffer.byteLength(JSON.stringify(search)) < 128000);
+    assert.deepEqual(search.items[0]!.metadata.images, []);
+    assert.equal(search.items[0]!.metadata.imagesTotal, 500);
+    assert.equal((store.get(id, 0, 0)!.metadata.images as unknown[]).length, 500);
+  } finally { db.close(); }
+});
+
 test('paid on-demand retrieval fails explicitly without source credentials or raw body', async () => {
   const db = openDatabase(':memory:'), store = new ContentStore(db), config = testConfig();
   try {

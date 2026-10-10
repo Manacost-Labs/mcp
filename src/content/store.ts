@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Db } from '../database.js';
 import type { SourceId } from '../config.js';
+import { imageMetadataPreview } from './images.js';
 
 export type ContentItem = { source: SourceId; externalId: string; url: string; title: string; text: string;
   publishedAt?: string; updatedAt?: string; metadata: Record<string, unknown> };
@@ -34,7 +35,10 @@ export class ContentStore {
     const total = (this.db.prepare(`SELECT count(*) AS count FROM ${from} ${clause}`).get(...params) as { count: number }).count;
     const rows = this.db.prepare(`SELECT c.* FROM ${from} ${clause} ORDER BY ${search ? 'bm25(content_fts),' : ''} c.published_at DESC,c.id LIMIT ? OFFSET ?`)
       .all(...params, input.limit, input.offset) as ContentRow[];
-    return { items: rows.map(row => this.serialize(row, row.text.slice(0, 500))), total, nextOffset: input.offset + rows.length < total ? input.offset + rows.length : null };
+    return { items: rows.map(row => {
+      const item = this.serialize(row, row.text.slice(0, 500));
+      return { ...item, metadata: imageMetadataPreview(item.metadata, 0) };
+    }), total, nextOffset: input.offset + rows.length < total ? input.offset + rows.length : null };
   }
   get(id: string, offset = 0, length = 16000) {
     const row = this.db.prepare('SELECT * FROM content WHERE id=?').get(id) as ContentRow | undefined;
