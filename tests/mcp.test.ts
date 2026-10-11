@@ -18,11 +18,21 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
   const origin = `http://127.0.0.1:${address.port}`, resource = `${origin}/mcp`;
   const db = openDatabase(':memory:');
   const config = testConfig({ PUBLIC_URL: resource, HEARTHPULSE_URL: origin, HEARTHPULSE_LOGIN_URL: `${origin}/profile/`,
-    PLAUSIBLE_SITE_IDS: 'hs-manacost.ru', PLAUSIBLE_API_KEY: 'fixture-statistics-key' });
+    PLAUSIBLE_SITE_IDS: 'hs-manacost.ru', PLAUSIBLE_API_KEY: 'fixture-statistics-key',
+    KOLODA_URL: 'http://127.0.0.1:3120', KOLODA_API_TOKEN: 'fixture-private-gateway-token' });
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
   const cardImage = await sharp({ create: { width: 40, height: 60, channels: 4, background: '#c68939' } }).png().toBuffer();
   const runtime = createApp(config, db, async (url, init) => {
-    if (String(url).endsWith('/BG_TEST')) return jsonResponse({ data: { card_id: 'BG_TEST', name: { ru: 'Тестовая карта' }, images: { card: 'https://api.kolodahearthstone.com/builder-test.png' } } });
+    if (/\/api\/v1\/(cards|heroes|trinkets)$/.test(new URL(String(url)).pathname)) {
+      assert.equal(new URL(String(url)).origin, 'https://api.kolodahearthstone.com');
+      assert.equal(new Headers(init?.headers).has('authorization'), false);
+      return jsonResponse({ data: [{ card_id: 'BG_TEST', name: { ru: 'Тестовая карта' } }] });
+    }
+    if (String(url).endsWith('/BG_TEST')) {
+      assert.equal(new URL(String(url)).origin, 'https://api.kolodahearthstone.com');
+      assert.equal(new Headers(init?.headers).has('authorization'), false);
+      return jsonResponse({ data: { card_id: 'BG_TEST', name: { ru: 'Тестовая карта' }, images: { card: 'https://api.kolodahearthstone.com/builder-test.png' } } });
+    }
     if (String(url).endsWith('/builder-test.png')) return new Response(new Uint8Array(cardImage), { headers: { 'Content-Type': 'image/png' } });
     if (String(url).endsWith('.png')) return new Response(Buffer.from(png, 'base64'), { headers: { 'Content-Type': 'image/png' } });
     return String(url).endsWith('/api/v2/query')
@@ -53,6 +63,11 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
       assert.ok(tools.tools.some(tool => tool.name === name), `Missing tool: ${name}`);
     }
     assert.ok(tools.tools.every(tool => tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint === false));
+    for (const source of ['card', 'hero', 'trinket']) {
+      const catalog = await client.callTool({ name: 'search_cards', arguments: { mode: 'battlegrounds', source } });
+      assert.ok(!catalog.isError);
+      assert.match((catalog.content as { text: string }[])[0]!.text, /BG_TEST/);
+    }
     for (const [name, arguments_] of [
       ['render_battlegrounds_strategy', { rows: 2, cards: [{ key: 'one', cardId: 'BG_TEST', row: 1, column: 1 }] }],
       ['render_battlegrounds_tier_list', { tiers: [{ tier: 'S', cards: [{ cardId: 'BG_TEST' }] }] }],

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Separate the public Battlegrounds catalog from the private Koloda database
+  gateway; never forward the gateway token to catalog or image hosts.
+
 - Add native MCP PNG tools for HearthPulse Battlegrounds strategies and tier
   lists, with catalog artwork, row/column controls, annotations and notes.
 - Extend Battlegrounds catalog discovery to heroes and trinkets. Protect image

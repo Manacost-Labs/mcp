@@ -15,6 +15,7 @@ const envSchema = z.object({
   ARTICLE_IMAGE_HOSTS: z.string().default('cdn.hearthpulse.net,kolodahearthstone.ru,www.kolodahearthstone.ru'),
   SESSION_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
   KOLODA_URL: z.url().default('https://api.kolodahearthstone.com'),
+  BATTLEGROUNDS_CATALOG_URL: z.url().default('https://api.kolodahearthstone.com'),
   KOLODA_API_TOKEN: z.string().optional(),
   KOLODA_WP_API_URL: z.preprocess(value => value === '' ? undefined : value, z.url().optional()),
   OLD_KOLODA_DATABASE_PATH: z.string().optional(),
@@ -46,7 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const publicUrl = new URL(e.PUBLIC_URL);
   const hearthpulseUrl = new URL(e.HEARTHPULSE_URL);
   const loginUrl = new URL(e.HEARTHPULSE_LOGIN_URL);
-  const urls = [publicUrl, hearthpulseUrl, loginUrl, new URL(e.KOLODA_URL), new URL(e.BOOSTY_LOCAL_URL), new URL(e.BOOSTY_API_URL)];
+  const urls = [publicUrl, hearthpulseUrl, loginUrl, new URL(e.KOLODA_URL), new URL(e.BATTLEGROUNDS_CATALOG_URL), new URL(e.BOOSTY_LOCAL_URL), new URL(e.BOOSTY_API_URL)];
   if (e.HEARTHPULSE_INTERNAL_URL) urls.push(new URL(e.HEARTHPULSE_INTERNAL_URL));
   if (e.KOLODA_WP_API_URL) urls.push(new URL(e.KOLODA_WP_API_URL));
   urls.push(new URL(e.PLAUSIBLE_URL), new URL(e.PLAUSIBLE_DASHBOARD_URL));
@@ -88,6 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     identityUrl: (e.HEARTHPULSE_INTERNAL_URL ?? hearthpulseUrl.origin).replace(/\/$/, ''),
     host: e.HOST, port: e.PORT, databasePath: e.DATABASE_PATH, encryptionKey: e.SESSION_ENCRYPTION_KEY, articleImageHosts,
     kolodaUrl: e.KOLODA_URL.replace(/\/$/, ''), kolodaToken: e.KOLODA_API_TOKEN, legacyDatabasePath: e.OLD_KOLODA_DATABASE_PATH,
+    bgCatalogUrl: e.BATTLEGROUNDS_CATALOG_URL.replace(/\/$/, ''),
     hearthpulseApiKey: e.HEARTHPULSE_API_KEY, websites, channelIds,
     telegramSecret: e.TELEGRAM_INGEST_SECRET, publicChannels, ingestInterval: e.INGEST_INTERVAL_SECONDS * 1000,
     wpPagesPerSync: e.WP_PAGES_PER_SYNC,

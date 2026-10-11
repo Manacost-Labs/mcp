@@ -20,13 +20,16 @@ test('builder contracts reject overlapping slots, unknown links and unbounded ca
 test('both renderers return actual PNGs with the expected card count and row geometry', async () => {
   const png = await sharp({ create: { width: 40, height: 60, channels: 4, background: '#c07020' } }).png().toBuffer();
   const fetcher: typeof fetch = async (url, init) => {
+    assert.equal(new URL(String(url)).origin, 'https://api.kolodahearthstone.com');
+    assert.equal(new Headers(init?.headers).has('authorization'), false);
     if (String(url).includes('/uploads/')) {
       assert.equal(new Headers(init?.headers).has('authorization'), false);
       return new Response(new Uint8Array(png), { headers: { 'Content-Type': 'image/png' } });
     }
     return jsonResponse({ data: { card_id: 'BG_TEST', name: { ru: 'Настоящая карта' }, images: { card: 'https://api.kolodahearthstone.com/uploads/test.png' } } });
   };
-  const one = await renderStrategy(strategySchema.parse({ cards: [card], title: '<Не HTML>' }), testConfig(), fetcher);
+  const gatewayConfig = testConfig({ KOLODA_URL: 'http://127.0.0.1:3120', KOLODA_API_TOKEN: 'fixture-private-gateway-token' });
+  const one = await renderStrategy(strategySchema.parse({ cards: [card], title: '<Не HTML>' }), gatewayConfig, fetcher);
   const three = await renderStrategy(strategySchema.parse({ rows: 3, cards: [card] }), testConfig(), fetcher);
   assert.equal(one.cardCount, 1);
   assert.equal(one.mimeType, 'image/png');

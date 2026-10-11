@@ -20,6 +20,7 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
   const server = new McpServer({ name: 'manacost-mcp', version: '1.3.1' });
   registerBuilderTools(server, config, fetcher);
   const koloda = new KolodaApi(config.kolodaUrl, config.kolodaToken, fetcher);
+  const bgCatalog = new KolodaApi(config.bgCatalogUrl, undefined, fetcher);
   const websites = new WebsiteIngestor(store, config, fetcher);
   const boosty = new BoostyApi(config, fetcher), vk = new VkApi(config, fetcher);
   const plausible = new PlausibleApi(config, fetcher);
@@ -146,7 +147,7 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
       format: z.enum(['standard', 'wild']).optional(), page: z.number().int().min(1).max(1000).default(1), perPage: z.number().int().min(1).max(100).default(30) })
       .refine(input => input.mode === 'battlegrounds' || input.source === 'card', 'Heroes and trinkets require mode=battlegrounds')
       .refine(input => input.source !== 'trinket' || !input.query, 'List trinkets without query; upstream text filtering is unavailable'),
-    input => koloda.get(input.mode === 'constructed' ? '/api/v1/constructed-cards' :
+    input => (input.mode === 'constructed' ? koloda : bgCatalog).get(input.mode === 'constructed' ? '/api/v1/constructed-cards' :
       `/api/v1/${{ card: 'cards', hero: 'heroes', trinket: 'trinkets' }[input.source]}`,
       { q: input.query, format: input.format, page: input.page, per_page: input.perPage }));
   register('search_decks', 'Search constructed decks, including available deckstrings and source links.',

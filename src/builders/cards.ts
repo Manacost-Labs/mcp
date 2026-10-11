@@ -14,8 +14,8 @@ const originalImageHosts = ['hearthstone.wiki.gg', 'art.hearthstonejson.com'];
 
 /** IDs resolve through the existing catalog. Callers never supply image URLs or credentials. */
 export async function resolveBuilderCards(cards: CardReference[], config: Config, fetcher: typeof fetch) {
-  const catalog = new KolodaApi(config.kolodaUrl, config.kolodaToken, fetcher);
-  const imageConfig = { ...config, articleImageHosts: [...config.articleImageHosts, ...originalImageHosts, new URL(config.kolodaUrl).hostname] };
+  const catalog = new KolodaApi(config.bgCatalogUrl, undefined, fetcher);
+  const imageConfig = { ...config, articleImageHosts: [...config.articleImageHosts, ...originalImageHosts, new URL(config.bgCatalogUrl).hostname] };
   const result = new Map<string, ResolvedCard>();
   // Sequential fetching bounds the memory and load of a 100-card request; duplicates share a decode.
   for (const card of cards) {
@@ -38,7 +38,7 @@ export async function resolveBuilderCards(cards: CardReference[], config: Config
     try { image = await sharp(Buffer.from(picture.data, 'base64'), { limitInputPixels: 16_000_000 })
       .resize({ width: 320, height: 460, fit: 'inside', withoutEnlargement: true }).png().toBuffer(); }
     catch { throw new SourceError(`CARD_IMAGE_DECODE_FAILED:${card.cardId}`); }
-    result.set(key, { name: data.name.ru || data.name.en || card.cardId, image, sourceUrl: `${config.kolodaUrl}${path}` });
+    result.set(key, { name: data.name.ru || data.name.en || card.cardId, image, sourceUrl: `${config.bgCatalogUrl}${path}` });
   }
   return result;
 }
