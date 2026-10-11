@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add native MCP PNG tools for HearthPulse Battlegrounds strategies and tier
+  lists, with catalog artwork, row/column controls, annotations and notes.
+- Extend Battlegrounds catalog discovery to heroes and trinkets. Protect image
+  resolution with bounded inputs, approved hosts, time and concurrency limits.
+- Verify both image tools through the official authenticated MCP HTTP client.
+
 ## 1.2.3
 
 - Accept HearthPulse's current `__Host-manacost_auth_token` browser session and

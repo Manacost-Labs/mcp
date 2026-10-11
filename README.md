@@ -69,6 +69,7 @@ OAuth для удалённого MCP. Войдите в HearthPulse под ад
 | `list_collections`, `describe_collection`, `read_records` | Вся база, разрешённая Koloda API; без SQL и мутаций |
 | `read_record_field` | Большое поле записи частями |
 | `search_database`, `search_cards`, `search_decks` | Игровые каталоги и колоды |
+| `render_battlegrounds_strategy`, `render_battlegrounds_tier_list` | PNG стратегий и тир-листов в стиле HearthPulse, с оригинальными картами; [контракт и примеры](docs/battleground-builders.md) |
 | `get_statistics` | Статистика HearthPulse; история/raw доступны через коллекции Koloda |
 | `list_plausible_sites`, `get_plausible_stats` | Разрешённые сайты и живые агрегаты посещаемости/страниц/источников/UTM/целей; пагинация и предупреждения источника |
 | `list_boosty_posts`, `get_boosty_analytics` | Посты Boosty, подписки, retention и агрегаты продаж |
@@ -76,6 +77,9 @@ OAuth для удалённого MCP. Войдите в HearthPulse под ад
 | `get_source_status` | Свежесть, ошибки, покрытие и готовность конфигурации |
 
 Примеры задач для AI:
+
+- «Собери стратегию БГ на три ряда, добавь стрелки между ключевыми картами и покажи картинку».
+- «Сделай тир-лист героев БГ с рядами S–D и покажи PNG прямо здесь».
 
 - «Сравни позиционирование HearthPulse, Manacost и Koloda по их страницам и меню».
 - «Найди платные гайды Koloda по Арене и прочитай полный текст».

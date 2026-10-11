@@ -8,6 +8,7 @@ import { createApp } from '../src/app.js';
 import { openDatabase } from '../src/database.js';
 import { digest } from '../src/auth/oauth.js';
 import { jsonResponse, profile, testConfig } from './helpers.js';
+import sharp from 'sharp';
 
 test('official MCP client completes HTTP handshake, lists read-only tools and reads paid content', async () => {
   let app: Express;
@@ -19,7 +20,10 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
   const config = testConfig({ PUBLIC_URL: resource, HEARTHPULSE_URL: origin, HEARTHPULSE_LOGIN_URL: `${origin}/profile/`,
     PLAUSIBLE_SITE_IDS: 'hs-manacost.ru', PLAUSIBLE_API_KEY: 'fixture-statistics-key' });
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+  const cardImage = await sharp({ create: { width: 40, height: 60, channels: 4, background: '#c68939' } }).png().toBuffer();
   const runtime = createApp(config, db, async (url, init) => {
+    if (String(url).endsWith('/BG_TEST')) return jsonResponse({ data: { card_id: 'BG_TEST', name: { ru: 'Тестовая карта' }, images: { card: 'https://api.kolodahearthstone.com/builder-test.png' } } });
+    if (String(url).endsWith('/builder-test.png')) return new Response(new Uint8Array(cardImage), { headers: { 'Content-Type': 'image/png' } });
     if (String(url).endsWith('.png')) return new Response(Buffer.from(png, 'base64'), { headers: { 'Content-Type': 'image/png' } });
     return String(url).endsWith('/api/v2/query')
       ? jsonResponse({ results: [{ metrics: [25, 50], dimensions: [] }], meta: { total_rows: 1 }, query: JSON.parse(init!.body as string) })
@@ -49,6 +53,18 @@ test('official MCP client completes HTTP handshake, lists read-only tools and re
       assert.ok(tools.tools.some(tool => tool.name === name), `Missing tool: ${name}`);
     }
     assert.ok(tools.tools.every(tool => tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint === false));
+    for (const [name, arguments_] of [
+      ['render_battlegrounds_strategy', { rows: 2, cards: [{ key: 'one', cardId: 'BG_TEST', row: 1, column: 1 }] }],
+      ['render_battlegrounds_tier_list', { tiers: [{ tier: 'S', cards: [{ cardId: 'BG_TEST' }] }] }],
+    ] as const) {
+      assert.ok(tools.tools.some(tool => tool.name === name));
+      const rendered = await client.callTool({ name, arguments: arguments_ });
+      assert.ok(!rendered.isError, JSON.stringify(rendered.content));
+      const nativeImage = (rendered.content as { type: string; data?: string; mimeType?: string }[]).find(block => block.type === 'image');
+      assert.equal(nativeImage?.mimeType, 'image/png');
+      const dimensions = await sharp(Buffer.from(nativeImage!.data!, 'base64')).metadata();
+      assert.equal(dimensions.width, 1600);
+    }
     const result = await client.callTool({ name: 'get_content', arguments: { id: contentId } });
     const content = result.content as { type: string; text: string }[];
     assert.match(content[0]!.text, /Full paid body/);

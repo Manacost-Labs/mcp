@@ -9,6 +9,7 @@ import { WebsiteIngestor } from './sources/websites.js';
 import { BoostyApi, VkApi } from './sources/social.js';
 import { PlausibleApi, plausibleQuerySchema } from './sources/plausible.js';
 import { fetchJson, SourceError } from './http.js';
+import { registerBuilderTools } from './builders/tools.js';
 
 const id = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).max(120);
 const collection = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/).max(250);
@@ -17,6 +18,7 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 
 export function createToolServer(config: Config, store: ContentStore, fetcher: typeof fetch = fetch) {
   const server = new McpServer({ name: 'manacost-mcp', version: '1.3.1' });
+  registerBuilderTools(server, config, fetcher);
   const koloda = new KolodaApi(config.kolodaUrl, config.kolodaToken, fetcher);
   const websites = new WebsiteIngestor(store, config, fetcher);
   const boosty = new BoostyApi(config, fetcher), vk = new VkApi(config, fetcher);
@@ -138,10 +140,15 @@ export function createToolServer(config: Config, store: ContentStore, fetcher: t
     });
   register('search_database', 'Unified Koloda API search across cards, heroes, archetypes and data sources.',
     z.object({ query: z.string().min(1).max(500), ...pageSchema.shape }).refine(p => !p.after || !p.offset), input => koloda.search(input));
-  register('search_cards', 'Search constructed or Battlegrounds cards in Koloda API.',
+  register('search_cards', 'Search constructed or Battlegrounds cards in Koloda API. For Battlegrounds, source can be card, hero or trinket. Trinkets support paginated listing without query; compare names in the returned page.',
     z.object({ query: z.string().max(200).optional(), mode: z.enum(['constructed', 'battlegrounds']).default('constructed'),
-      format: z.enum(['standard', 'wild']).optional(), page: z.number().int().min(1).max(1000).default(1), perPage: z.number().int().min(1).max(100).default(30) }),
-    input => koloda.get(input.mode === 'constructed' ? '/api/v1/constructed-cards' : '/api/v1/cards', { q: input.query, format: input.format, page: input.page, per_page: input.perPage }));
+      source: z.enum(['card', 'hero', 'trinket']).default('card'),
+      format: z.enum(['standard', 'wild']).optional(), page: z.number().int().min(1).max(1000).default(1), perPage: z.number().int().min(1).max(100).default(30) })
+      .refine(input => input.mode === 'battlegrounds' || input.source === 'card', 'Heroes and trinkets require mode=battlegrounds')
+      .refine(input => input.source !== 'trinket' || !input.query, 'List trinkets without query; upstream text filtering is unavailable'),
+    input => koloda.get(input.mode === 'constructed' ? '/api/v1/constructed-cards' :
+      `/api/v1/${{ card: 'cards', hero: 'heroes', trinket: 'trinkets' }[input.source]}`,
+      { q: input.query, format: input.format, page: input.page, per_page: input.perPage }));
   register('search_decks', 'Search constructed decks, including available deckstrings and source links.',
     z.object({ query: z.string().max(200).optional(), className: z.string().max(50).optional(), format: z.enum(['standard', 'wild']).optional(), ...localPage }),
     input => koloda.get('/v1/constructed/decks', { q: input.query, class_name: input.className, format_name: input.format, limit: input.limit, offset: input.offset }));
